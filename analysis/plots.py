@@ -190,6 +190,13 @@ def error_plot(
             )
         else:
             raise NotImplementedError('Unknown mode')
+        
+    if extra_lines is not None:
+        extra_lines(
+            plt, x_axis, 
+            linewidth=linewidth, 
+            capsize=capsize, capthick=capthick
+        )
 
     if x_label:
         plt.xlabel(x_label, fontsize=fontsize)
@@ -209,14 +216,7 @@ def error_plot(
     if xlim is not None:
         plt.xlim(xlim)
     if ylim is not None:
-        plt.ylim(ylim)
-
-    if extra_lines is not None:
-        extra_lines(
-            plt, x_axis, 
-            linewidth=linewidth, 
-            capsize=capsize, capthick=capthick
-        )
+        plt.ylim(ylim)    
 
     if legend and label_list != [None]:
         if legend_fontsize is None:

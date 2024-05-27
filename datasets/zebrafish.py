@@ -41,6 +41,8 @@ class NeuralDataset(tud.Dataset):
             all_activity: np.ndarray
             # For each fish, split the data into patches
             length = all_activity.shape[1]
+            if phase == 'train':
+                length = min(length, config.train_data_length)
             patch_length = config.patch_length
             segments = max(1, length // patch_length)
             self.datum_size.append(all_activity.shape[0])
@@ -180,7 +182,7 @@ class Zebrafish(NeuralDataset):
 class Simulation(NeuralDataset):
 
     def load_all_activities(self, config: NeuralPredictionConfig):
-        filename = os.path.join(SIM_DIR, f'sim_{config.n_neurons}.npz')
+        filename = os.path.join(SIM_DIR, f'sim_{config.n_neurons}_{config.n_regions}.npz')
 
         data = np.load(filename)
         if config.pc_dim is None:

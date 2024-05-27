@@ -338,9 +338,9 @@ def threeRegionSim(number_units=100,
     sig = bumpStd*Nb  # width of bump in N units
 
     norm_by = 2*sig ** 2
-    cut_off = math.ceil(len(tData)/2) - 100
+    cut_off = math.ceil(len(tData)/2  * (1 - bumpStd * 2))
     for i in range(Nb):
-        stuff = (i / Nb - sig - Nb * tData / (tData[-1] / 2)) ** 2 / norm_by
+        stuff = (i - sig - Nb * tData / (tData[-1] / 2)) ** 2 / norm_by
         xBump[i, :] = np.exp(-stuff)
         xBump[i, cut_off:] = xBump[i, cut_off]
 
@@ -351,7 +351,7 @@ def threeRegionSim(number_units=100,
     # set up fixed points driving network
 
     xFP = np.zeros((Nc, len(tData)))
-    cut_off = math.ceil(len(tData)/2) + 100
+    cut_off = math.ceil(len(tData)/2) + math.ceil(2 * sig)
     for i in range(Nc):
         front = xBump[i, 10] * np.ones((1, cut_off))
         back = xBump[i, -10] * np.ones((1, len(tData)-cut_off))
@@ -361,7 +361,7 @@ def threeRegionSim(number_units=100,
     hFP = hFP/np.max(hFP)
 
     # add the lead time
-    extratData = np.arange(tData[-1] + dtData, T + leadTime, dtData)
+    extratData = np.arange(tData[-1] + dtData, T + leadTime + dtData * 0.5, dtData)
     tData = np.concatenate((tData, extratData))
 
     newmat = np.tile(hBump[:, 1, np.newaxis], (1, math.ceil(leadTime/dtData)))
@@ -543,11 +543,11 @@ def threeRegionSim(number_units=100,
         ax.set_title('units from RNN C')
 
         ax = fig.add_subplot(4, 3, 10)
-        ax.pcolormesh(tData, range(Nc), Rfp[:, 1: ])
+        ax.pcolormesh(tData, range(Nc), Rfp)
         ax.set_title('Fixed Point Driver')
 
         ax = fig.add_subplot(4, 3, 11)
-        ax.pcolormesh(tData, range(Nc), Rseq[:, 1:])
+        ax.pcolormesh(tData, range(Nc), Rseq)
         ax.set_title('Sequence Driver')
         plt.pause(0.05)
 

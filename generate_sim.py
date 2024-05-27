@@ -7,14 +7,18 @@ from sklearn.decomposition import PCA
 from analysis import plots
 
 for mode in [1, 3]:
-    for n in [200, 500, 1500, 3000]:
+    for n in [200, 500, 1500, 3000, ]:
 
-        out = threeRegionSim(number_units=n, dtData=0.1, tau=1, T=300, fig_save_name=f'sim_{n}_{mode}.png', leadTime=5)
-        exit(0)
-        out = threeRegionSim(number_units=n, dtData=0.1, tau=1, T=3000, fig_save_name=f'sim_long_{n}_{mode}.png', leadTime=1500)
+        frac_inter = 0 if mode == 1 else 0.05
+        ga = 2.0 if (mode == 1 and n == 200) else 1.8
+        out = threeRegionSim(number_units=n, dtData=0.1, tau=1, T=300, fig_save_name=f'sim_{n}_{mode}.png', leadTime=20, fracInterReg=frac_inter, ga=ga)
+        out = threeRegionSim(number_units=n, dtData=0.1, tau=1, T=30000, fig_save_name=f'sim_long_{n}_{mode}.png', leadTime=500, fracInterReg=frac_inter, ga=ga)
 
         os.makedirs(SIM_DIR, exist_ok=True)
-        R = np.concatenate([out['Ra'][:, ::10], out['Rb'][:, ::10], out['Rc'][:, ::10]], axis=0)
+        if mode == 1:
+            R = out['Ra'][:, ::10]
+        elif mode == 3:
+            R = np.concatenate([out['Ra'][:, ::10], out['Rb'][:, ::10], out['Rc'][:, ::10]], axis=0)
         data_dict = {'M': R, }
 
         # plot cumulative explained variance for first 2048 PCs
@@ -27,8 +31,8 @@ for mode in [1, 3]:
             np.arange(1, len(cumulated) + 1),
             [cumulated],
             x_label='Number of PCs', y_label='Explained variance',
-            save_dir='preprocess',
-            fig_name=f'sim_explained_variance_{n}',
+            save_dir='sim',
+            fig_name=f'sim_explained_variance_{n}_{mode}',
             errormode='none',
             mode='errorshade',
             yticks=[0, 1]
@@ -36,6 +40,10 @@ for mode in [1, 3]:
 
         print("Reduced Data Shape: ", act.shape)
         data_dict['PC'] = act.T
-        print(f"512-dim Explained variance: {cumulated[511]}")
+        print(f"512-dim Explained variance: {cumulated[min(512, n * mode) - 1]}")
 
-        np.savez(os.path.join(SIM_DIR, f'sim_{n}.npz'), **data_dict)
+        np.savez(os.path.join(SIM_DIR, f'sim_{n}_{mode}.npz'), **data_dict)
+
+        data_dict = None
+        out = None
+        R = None

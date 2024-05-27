@@ -179,8 +179,8 @@ def model_train(config: SupervisedLearningBaseConfig):
             
             net.train()
             # save model
-            if i_b % config.save_every == 0:
-                torch.save(net.state_dict(), osp.join(config.save_path, 'net_{}.pth'.format(i_b)))
+            if (i_b + 1) % config.save_every == 0:
+                torch.save(net.state_dict(), osp.join(config.save_path, 'net_{}.pth'.format(i_b + 1)))
 
             loss = 0.0
             optimizer.zero_grad()

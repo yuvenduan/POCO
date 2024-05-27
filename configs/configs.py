@@ -47,10 +47,6 @@ class BaseConfig(object):
         self.input_shape = None
         self.model_outsize = None
 
-    @property
-    def test_begin(self):
-        return self.seq_length + self.delay
-
     def update(self, new_config):
         self.__dict__.update(new_config.__dict__)
 
@@ -102,9 +98,9 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # meta-rnn model config
         self.inner_wd = 0
-        self.inner_lr = 1
+        self.inner_lr = 10
         self.inner_train_step = 1
-        self.inner_test_time_train_step = 10
+        self.inner_test_time_train_step = 1
         self.algorithm = 'maml'
         self.use_low_dim_rnn = False
 
@@ -143,8 +139,12 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.animal_ids = 'all'
         # self.train_fish_ids = [] # all neural data (instead of just first 70%) of fish in this list will be used for training
         self.pc_dim = 512 # number of principal components to used for training, if None, predict original data
-        self.n_neurons = 3000 # only used for simulated dataset: the number of neurons used for training
-        self.normalize_mode = 'minmax' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
+        self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
+
+        # config for sim data
+        self.n_neurons = 200 # only used for simulated dataset: the number of neurons used for training
+        self.n_regions = 1
+        self.train_data_length = 1000000
 
         self.max_batch = 5000
         self.test_batch = 10000 # test on all available data 

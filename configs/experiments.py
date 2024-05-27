@@ -40,58 +40,58 @@ def autoregressive_rnns():
     config = NeuralPredictionConfig()
     config.experiment_name = 'autoregressive_rnns'
     config.loss_mode = 'autoregressive'
-    config.hidden_size = 128
 
     config_ranges = OrderedDict()
     config_ranges['target_mode'] = ['raw', ]
-    config_ranges['normalize_mode'] = ['minmax', 'zscore', ]
+    config_ranges['normalize_mode'] = ['none', ]
     config_ranges['shared_backbone'] = [True,  ]
     config_ranges['rnn_type'] = ['Transformer', 'S4', 'LSTM', 'RNN', ]
     
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    
-    for seed, config_list in configs.items():
-        for config in config_list:
-            config: NeuralPredictionConfig
-            config.num_layers = 3 if config.rnn_type == 'Transformer' else 1
-
     return configs
 
-def autoregressive_rnns_sim():
+def sim_compare_n_neurons():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'autoregressive_rnns_sim'
+    config.experiment_name = 'sim_compare_n_neurons'
     config.loss_mode = 'autoregressive'
-    config.hidden_size = 128
     config.dataset = 'simulation'
 
     config_ranges = OrderedDict()
-    config_ranges['target_mode'] = ['raw', ]
-    config_ranges['normalize_mode'] = ['minmax', ]
-    config_ranges['shared_backbone'] = [True, ]
+    config_ranges['n_regions'] = [1, 3, ]
+    config_ranges['n_neurons'] = [200, 500, 1500, 3000, ]
     config_ranges['rnn_type'] = ['Transformer', 'S4', 'LSTM', 'RNN', ]
     
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    
-    for seed, config_list in configs.items():
-        for config in config_list:
-            config: NeuralPredictionConfig
-            config.num_layers = 3 if config.rnn_type == 'Transformer' else 1
-
     return configs
 
-def sim_test():
+def sim_compare_train_length():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'autoregressive_rnns_sim'
+    config.experiment_name = 'sim_compare_train_length'
     config.loss_mode = 'autoregressive'
     config.dataset = 'simulation'
 
     config_ranges = OrderedDict()
-    config_ranges['hidden_size'] = [128, 512, 2048, ]
-    config_ranges['n_neurons'] = [200, 500, 1500, 3000, ]
-    config_ranges['rnn_type'] = ['LSTM', ]
-    
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
+    config_ranges['n_regions'] = [1, ]
+    config_ranges['n_neurons'] = [500, 3000, ]
+    config_ranges['rnn_type'] = ['Transformer', 'RNN', ]
+    config_ranges['train_data_length'] = [500, 3000, 10000, 30000, ]
 
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    return configs
+
+def sim_compare_pca_dim():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'sim_compare_pca_dim'
+    config.loss_mode = 'autoregressive'
+    config.dataset = 'simulation'
+
+    config_ranges = OrderedDict()
+    config_ranges['n_regions'] = [1, ]
+    config_ranges['n_neurons'] = [500, 3000, ]
+    config_ranges['rnn_type'] = ['Transformer', 'RNN', ]
+    config_ranges['pc_dim'] = [None, 64, 512, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     return configs
 
 def seqvae_test():
@@ -113,13 +113,31 @@ def seqvae_test():
     adjust_batch_size(configs)
     return configs
 
+def seqvae_sim_test():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'seqvae_sim_test'
+    config.model_type = 'SeqVAE'
+    config.dataset = 'simulation'
+
+    config.encoder_hidden_size = 128
+    config.decoder_hidden_size = 200
+    config.kl_loss_coef = 0.1
+    config.n_regions = 1
+
+    config_ranges = OrderedDict()
+    config_ranges['n_neurons'] = [200, 500, 1500, 3000, ]
+    config_ranges['kl_loss_coef'] = [0.1, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
+    adjust_batch_size(configs)
+    return configs
+
 def meta_rnn():
     config = NeuralPredictionConfig()
     config.experiment_name = 'meta_rnn'
 
     config.model_type = 'MetaRNN'
     config.inner_train_step = 1
-    config.teacher_forcing = False
 
     config_ranges = OrderedDict()
     config_ranges['algorithm'] = ['maml', 'none', ]
@@ -127,6 +145,31 @@ def meta_rnn():
     config_ranges['inner_lr'] = [3, 10, 100, ]
     config_ranges['inner_test_time_train_step'] = [2, 10, ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    for seed, config_list in configs.items():
+        for config in config_list:
+            config: NeuralPredictionConfig
+            if config.algorithm == 'none':
+                config.max_batch = config.log_every = 1
+            
+            if config.teacher_forcing == True:
+                config.loss_mode = 'prediction'
+            else:
+                config.loss_mode = 'autoregressive'
+
+    return configs
+
+def meta_rnn_sim():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'meta_rnn_sim'
+    config.dataset = 'simulation'
+    config.model_type = 'MetaRNN'
+
+    config_ranges = OrderedDict()
+    config_ranges['n_regions'] = [1, 3, ]
+    config_ranges['n_neurons'] = [200, 500, 1500, 3000, ]
+    config_ranges['algorithm'] = ['maml', 'none', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
 
     for seed, config_list in configs.items():
         for config in config_list:
@@ -182,7 +225,7 @@ def conv_baselines():
     config.loss_mode = 'prediction'
 
     config_ranges = OrderedDict()
-    config_ranges['normalize_mode'] = ['minmax', 'zscore', ]
+    config_ranges['normalize_mode'] = ['none', ]
     config_ranges['kernel_size'] = [1, 2, 3, 5, 10, ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
 

@@ -114,7 +114,7 @@ def get_lr_curve(cfgs, idx, file_name='lr_info.pth'):
     info = np.stack(info, axis=1)
     return info
 
-def autoregressive_rnns_analysis(cfgs = experiments.autoregressive_rnns(), save_dir = 'autoregressive_rnns', mode_list = ['minmax', 'zscore', ]):
+def autoregressive_rnns_analysis(cfgs = experiments.autoregressive_rnns(), save_dir = 'autoregressive_rnns', mode_list = ['none', ]):
     
     data_mode_list = ['Shared', ]
     model_list = ['S4', 'LSTM', 'Transformer', 'RNN', ]
@@ -179,54 +179,185 @@ def autoregressive_rnns_analysis(cfgs = experiments.autoregressive_rnns(), save_
                 extra_lines=draw_baseline
             )
 
-def autoregressive_rnns_sim_analysis():
-    cfgs = experiments.autoregressive_rnns_sim()
-    autoregressive_rnns_analysis(cfgs, 'autoregressive_rnns_sim', mode_list=['minmax'])
+def sim_compare_n_neurons_analysis():
+    cfgs = experiments.sim_compare_n_neurons()
 
-def sim_test_analysis():
-    cfgs = experiments.sim_test()
-    n_neurons =  [200, 500, 1500, 3000, ]
-    hidden_sizes = [128, 512, 2048, ]
-    for i, n in enumerate(n_neurons):
+    n_regions = [1, 3, ]
+    n_neurons = [200, 500, 1500, 3000, ]
+    models = ['Transformer', 'S4', 'LSTM', 'RNN', ]
 
-        val_baseline_performance = get_baseline_performance(cfgs[0][i], 'val')
-        def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
-            plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
-        val_curves = []
+    for i, n in enumerate(n_regions):
+        for j, m in enumerate(n_neurons):
+            val_baseline_performance = get_baseline_performance(cfgs[0][(i * len(n_neurons) + j) * len(models)], 'val')
+            def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
+                plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
-        for j, hidden_size in enumerate(hidden_sizes):
-            test_curve, x_axis = get_curve(cfgs, i + j * len(n_neurons), key='val_end_loss')
-            train_curve, x_axis = get_curve(cfgs, i + j * len(n_neurons), key='train_end_loss')
-            val_curves.append(test_curve)
-            
-            # compare train and test curves
+            val_curves = []
+            for k, model in enumerate(models):
+                test_curve, x_axis = get_curve(cfgs, (i * len(n_neurons) + j) * len(models) + k, key='val_end_loss')
+                train_curve, x_axis = get_curve(cfgs, (i * len(n_neurons) + j) * len(models) + k, key='train_end_loss')
+                val_curves.append(test_curve)
+
+                # compare train and test curves
+                plots.error_plot(
+                    x_axis,
+                    [train_curve, test_curve],
+                    x_label='Training Step',
+                    y_label='Train Loss',
+                    label_list=['Train', 'Test'],
+                    save_dir='sim_compare_n_neurons',
+                    fig_name=f'{n}_{m}_{model}',
+                    figsize=(5, 4),
+                    mode='errorshade',
+                    extra_lines=draw_baseline
+                )
+
             plots.error_plot(
                 x_axis,
-                [train_curve, test_curve],
+                val_curves,
                 x_label='Training Step',
-                y_label='Train Loss',
-                label_list=['Train', 'Test'],
-                save_dir='sim_test',
-                fig_name=f'{n}_{hidden_size}',
+                y_label='Validation Loss',
+                label_list=models,
+                legend_title='Model',
+                save_dir='sim_compare_n_neurons',
+                fig_name=f'{n}_{m}_val',
                 figsize=(5, 4),
                 mode='errorshade',
                 extra_lines=draw_baseline
             )
 
+def sim_compare_train_length_analysis():
+    cfgs = experiments.sim_compare_train_length()
+    model_list = ['Transformer', 'RNN', ]
+    train_lengths = [500, 3000, 10000, 30000, ]
+
+    for i, n in enumerate([500, 3000, ]):
+        curves = []
+
+        for j, model in enumerate(model_list):
+            train_performances = []
+            performances = []
+
+            for k, length in enumerate(train_lengths):
+                idx = (i * len(model_list) + j) * len(train_lengths) + k
+
+                loss = get_performance(cfgs, idx, key1='val_end_loss', key2='val_end_loss')
+                performances.append(loss)
+                train_loss = get_performance(cfgs, idx, key1='val_end_loss', key2='train_end_loss')
+                train_performances.append(train_loss)
+            curves.append(performances)
+
+        x_axis = train_lengths
+        val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'val')
+        def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
+            plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+
         plots.error_plot(
             x_axis,
-            val_curves,
-            x_label='Training Step',
-            y_label='Validation Loss',
-            label_list=hidden_sizes,
-            legend_title='Hidden Size',
-            save_dir='sim_test',
-            fig_name=f'{n}_val',
+            curves,
+            label_list=model_list,
+            x_label='Training Set Size',
+            y_label='Prediction Loss',
+            save_dir='sim_compare_train_length',
+            fig_name=f'TestLoss_{n}',
             figsize=(5, 4),
             mode='errorshade',
             extra_lines=draw_baseline
         )
+
+def sim_compare_pca_dim_analysis():
+    cfgs = experiments.sim_compare_pca_dim()
+    model_list = ['Transformer', 'RNN', ]
+    pc_dims = [None, 64, 512, ]
+
+    for i, n in enumerate([500, 3000]):
+        for k, dim in enumerate(pc_dims):
+
+            try:
+                curves = []
+
+                for j, model in enumerate(model_list):
+
+                    idx = (i * len(model_list) + j) * len(pc_dims) + k
+                    test_curve, x_axis = get_curve(cfgs, idx, key='val_end_loss')
+                    train_curve, x_axis = get_curve(cfgs, idx, key='train_end_loss')
+                    curves.append(test_curve)
+
+                val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list) * len(pc_dims) + k], 'val')
+                def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
+                    plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+            except:
+                continue
+
+            plots.error_plot(
+                x_axis,
+                curves,
+                label_list=model_list,
+                x_label='Training Step',
+                y_label='Prediction Loss',
+                save_dir='sim_compare_pca_dim',
+                fig_name=f'{n}_{dim}',
+                ylim=(0, None),
+                figsize=(5, 4),
+                mode='errorshade',
+                extra_lines=draw_baseline
+            )
+
     
+def meta_rnn_sim_analysis():
+    cfgs = experiments.meta_rnn_sim()
+    n_regions = [1, 3, ]
+    n_neurons = [200, 500, 1500, 3000, ]
+    algorithms = ['maml', 'none',  ]
+
+    for i, n in enumerate(n_regions):
+        for j, m in enumerate(n_neurons):
+            val_baseline_performance = get_baseline_performance(cfgs[0][(i * len(n_neurons) + j) * len(algorithms)], 'val')
+            def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
+                plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+
+            val_curves = []
+            x_axis_ = None
+            for k, algo in enumerate(algorithms):
+                test_curve, x_axis = get_curve(cfgs, (i * len(n_neurons) + j) * len(algorithms) + k, key='val_end_loss')
+                train_curve, x_axis = get_curve(cfgs, (i * len(n_neurons) + j) * len(algorithms) + k, key='train_end_loss')
+
+                if algo == 'none':
+                    val_curves.append(np.repeat(test_curve, 50, axis=0))
+                    continue
+                else:
+                    val_curves.append(test_curve)
+                    x_axis_ = x_axis
+
+                # compare train and test curves
+                plots.error_plot(
+                    x_axis,
+                    [train_curve, test_curve],
+                    x_label='Training Step',
+                    y_label='Train Loss',
+                    label_list=['Train', 'Test'],
+                    save_dir='meta_rnn_sim',
+                    fig_name=f'{n}_{m}_{algo}',
+                    figsize=(5, 4),
+                    mode='errorshade',
+                    extra_lines=draw_baseline
+                )
+
+            # print(val_curves)
+            plots.error_plot(
+                x_axis_,
+                val_curves,
+                x_label='Training Step',
+                y_label='Validation Loss',
+                label_list=algorithms,
+                legend_title='Algorithm',
+                save_dir='meta_rnn_sim',
+                fig_name=f'{n}_{m}_val',
+                figsize=(5, 4),
+                mode='errorshade',
+                extra_lines=draw_baseline
+            )
+
 def tca_analysis():
     from analysis.tca import tca
     cfgs = experiments.linear_rnn_test()
@@ -327,16 +458,16 @@ def seqvae_analysis():
 def conv_baselines_analysis():
     cfgs = experiments.conv_baselines()
 
-    for i_mode, mode in enumerate(['minmax', 'zscore', ]):
+    for i_mode, mode in enumerate(['none', ]):
         kernel_size = [1, 2, 3, 5, 10]
 
         train_performances = []
         performances = []
 
         for i, length in enumerate(kernel_size):
-            loss = get_performance(cfgs, i_mode * len(kernel_size) + i, key2='val_end_loss')
+            loss = get_performance(cfgs, i_mode * len(kernel_size) + i, key1='val_end_loss', key2='val_end_loss')
             performances.append(loss)
-            train_loss = get_performance(cfgs, i_mode * len(kernel_size) + i, key2='train_end_loss')
+            train_loss = get_performance(cfgs, i_mode * len(kernel_size) + i, key1='train_end_loss', key2='train_end_loss')
             train_performances.append(train_loss)
 
         x_axis = kernel_size

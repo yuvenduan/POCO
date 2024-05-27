@@ -67,7 +67,7 @@ for exp_type in EXP_TYPES:
             )
 
             valid_indices = np.ones(data_dict['M'].shape[0], dtype=bool)
-            valid_indices &= data_dict['M'].min(axis=1) > 1
+            valid_indices &= data_dict['M'].min(axis=1) > 10
             print(f"Indices: {data_dict['M'].shape}, Valid indices: {valid_indices.sum()}")
 
             # delta F / F, then normalize by max abs value, the resuling value is in [-1, 1]
@@ -77,9 +77,11 @@ for exp_type in EXP_TYPES:
             # data_dict['M'] = data_dict['M'] / (np.max(np.abs(data_dict['M']), axis=1, keepdims=True) + 1e-4)
             # assert np.all(np.abs(data_dict['M']) <= 1)
 
+            normalized = data_dict['M'] / (np.max(np.abs(data_dict['M']), axis=1, keepdims=True) + 1e-4)
+
             # plot distribution of delta F
             plots.distribution_plot(
-                [[(data_dict['M'][:, 1: ] - data_dict['M'][:, : -1]).reshape(-1)]],
+                [[(normalized[:, 1: ] - normalized[:, : -1]).reshape(-1)]],
                 ['All ROIs', ],
                 left=-4.95, right=5, 
                 interval=0.1,
@@ -99,7 +101,7 @@ for exp_type in EXP_TYPES:
 
             # plot cumulative explained variance for first 2048 PCs
             pca = PCA(n_components=2048, svd_solver='full')
-            act = pca.fit_transform(data_dict['M'].T)
+            act = pca.fit_transform(normalized.T)
             print('EV 10:', pca.explained_variance_ratio_[:10])
             cumulated = np.cumsum(pca.explained_variance_ratio_)
             plots.error_plot(
@@ -116,7 +118,6 @@ for exp_type in EXP_TYPES:
             data_dict['PC'] = act.T
 
             print(f"512-dim Explained variance: {cumulated[511]}")
-            print(f"max: {data_dict['M'].max()}, min: {data_dict['M'].min()}, std: {data_dict['M'].std(axis=1).mean()}")
             print('')
 
             # plot distribution of delta F
