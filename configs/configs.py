@@ -102,7 +102,8 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.inner_train_step = 1
         self.inner_test_time_train_step = 1
         self.algorithm = 'maml'
-        self.use_low_dim_rnn = False
+        self.use_low_dim_rnn = True
+        self.shared_rnn = False
 
         # seq vae model config
         self.encoder_rnn_type = 'BiGRU'
@@ -110,6 +111,9 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.decoder_rnn_type = 'CTRNN'
         self.decoder_hidden_size = 512
         self.kl_loss_coef = 0.002
+
+        # only used for latent models
+        self.tf_interval = 5 
 
         self.do_analysis = False
 
@@ -140,11 +144,26 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         # self.train_fish_ids = [] # all neural data (instead of just first 70%) of fish in this list will be used for training
         self.pc_dim = 512 # number of principal components to used for training, if None, predict original data
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
+        self.sampling_rate = 10 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
 
-        # config for sim data
-        self.n_neurons = 200 # only used for simulated dataset: the number of neurons used for training
+        # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
+        # or 'average' (in which case we will average the neural activity within each brain region)
+        self.brain_regions = 'all' 
+        
+        # config for simulated data
+        self.n_neurons = 512 # only used for simulated dataset: the number of neurons used for training
         self.n_regions = 1
+        self.ga = 2.0
+        self.sim_noise_std = 0
+        self.portion_observable_neurons = 1 # only used for simulated dataset: the portion of neurons that are observable
         self.train_data_length = 1000000
+        self.sparsity = 1
+
+        # config for visual fish data
+        self.use_stimuli = False
+        self.stimuli_dim = 0
+        self.use_eye_movements = False
+        self.use_motor = False
 
         self.max_batch = 5000
         self.test_batch = 10000 # test on all available data 

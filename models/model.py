@@ -1,19 +1,23 @@
-__all__ = ['SimpleRNN', ]
+__all__ = ['SimpleRNN', 'LatentModel']
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
 import numpy as np
-from configs.configs import SupervisedLearningBaseConfig
+import itertools
+from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 
 from models.model_utils import get_rnn, CTRNNCell
 from configs.config_global import DEVICE
 import models
 
 class SimpleRNN(nn.Module):
+    """
+    Au autoregressive model that predicts the next step based on the previous steps
+    """
 
-    def __init__(self, config: SupervisedLearningBaseConfig, datum_size):
+    def __init__(self, config: NeuralPredictionConfig, datum_size):
         super().__init__()
 
         self.in_proj = nn.ModuleList([nn.Linear(size, config.hidden_size) for size in datum_size])
@@ -21,30 +25,35 @@ class SimpleRNN(nn.Module):
         if config.shared_backbone:
             self.rnn = get_rnn(config.rnn_type, config.hidden_size, config.hidden_size, num_layers=config.num_layers)
         else:
-            self.rnns = nn.ModuleList([get_rnn(config.rnn_type, config.hidden_size, size) for size in datum_size])
+            self.rnns = nn.ModuleList([get_rnn(config.rnn_type, config.hidden_size, config.hidden_size) for size in datum_size])
+        
+        self.stimuli_dim = config.stimuli_dim
+        if config.stimuli_dim > 0:
+            self.stimuli_proj = nn.Linear(config.stimuli_dim, config.hidden_size)
         self.shared_backbone = config.shared_backbone
 
         self.out_proj = nn.ModuleList([nn.Linear(config.hidden_size, size) for size in datum_size])
         self.out_sizes = datum_size
         self.teacher_forcing = config.teacher_forcing
+        self.target_mode = config.target_mode
         assert self.teacher_forcing, "Only support teacher forcing for now"
 
-    def forward(self, x, pred_step=1):
+    def forward(self, input, pred_step=1):
         """
         :param x: list of tensors, each of shape (L, B, D)
         """
 
-        bsz = [xx.size(1) for xx in x]
-        x = [proj(xx) for proj, xx in zip(self.in_proj, x)]
+        bsz = [xx.size(1) for xx in input]
+        x = [proj(xx[:, :, : xx.shape[2] - self.stimuli_dim]) for proj, xx in zip(self.in_proj, input)]
+        if self.stimuli_dim > 0:
+            stimuli = [self.stimuli_proj(xx[:, :, -self.stimuli_dim: ]) for xx in input]
+            x = [xx + stim for xx, stim in zip(x, stimuli)]
 
         if self.shared_backbone:
             x = torch.cat(x, dim=1) 
             for step in range(pred_step):
                 ret = self.rnn(x)
-                if isinstance(ret, tuple):
-                    new_x = ret[0]
-                else:
-                    new_x = ret
+                new_x = ret[0] if isinstance(ret, tuple) else ret
                 x = torch.cat([x, new_x[-1: ]], dim=0)
             x = x[1: ]
             x = torch.split(x, bsz, dim=1)
@@ -61,6 +70,93 @@ class SimpleRNN(nn.Module):
 
         x = [proj(xx) for proj, xx in zip(self.out_proj, x)]
 
+        return x
+    
+    def set_mode(self, mode):
+        pass
+
+class Latent_to_Obs(nn.Module):
+
+    def __init__(self, config: NeuralPredictionConfig, datum_size):
+        super().__init__()
+        self.projs = nn.ModuleList([nn.Linear(config.hidden_size, size) for size in datum_size])
+        self.out_sizes = datum_size
+
+    def latent_to_obs(self, z):
+        """
+        :param z: list of tensors, each of shape (L, B, D)
+        """
+        x = [proj(xx) for proj, xx in zip(self.projs, z)]
+        return x
+        
+    def forward(self, z):
+        return self.latent_to_obs(z)
+    
+    def obs_to_latent(self, x):
+        """
+        Infer latent states from observations via the pseudo-inverse of the projection matrix
+        :param x: list of tensors, each of shape (L, B, D)
+        """
+        z = []
+        for proj, xx in zip(self.projs, x):
+            W = proj.weight
+            xx = xx - proj.bias
+            W_PI = torch.linalg.pinv(W)
+            z.append(F.linear(xx, W_PI))
+        return z
+
+class LatentModel(nn.Module):
+
+    def __init__(self, config: NeuralPredictionConfig, datum_size):
+        super().__init__()
+
+        self.proj = Latent_to_Obs(config, datum_size)
+        if config.shared_backbone:
+            assert config.num_layers == 1
+            self.rnn = get_rnn(config.rnn_type, None, config.hidden_size)
+        else:
+            self.rnns = nn.ModuleList([get_rnn(config.rnn_type, None, config.hidden_size) for size in datum_size])
+        self.shared_backbone = config.shared_backbone
+        self.out_sizes = datum_size
+        self.teacher_forcing = config.teacher_forcing
+        self.train_tf_interval = config.tf_interval
+        self.target_mode = config.target_mode
+
+        assert self.teacher_forcing, "Only support teacher forcing for now"
+        assert config.stimuli_dim == 0, "Stimuli not supported for now"
+
+    def forward(self, input, pred_step=1):
+        """
+        :param x: list of tensors, each of shape (L, B, D)
+        """
+
+        bsz = [xx.size(1) for xx in input]
+        z = self.proj.obs_to_latent(input)
+
+        if self.shared_backbone:
+            z = torch.cat(z, dim=1)
+
+            # use sparse teacher forcing
+            z_list = [z[0]]
+            for step in range(z.shape[0] - 1):
+                if step % self.train_tf_interval == 0:
+                    last_z = z[step]
+                ret = self.rnn(hidden_in=last_z)
+                last_z = ret[0] if isinstance(ret, tuple) else ret
+                z_list.append(last_z)
+
+            last_z = z[-1]    
+            for step in range(pred_step):
+                ret = self.rnn(hidden_in=last_z)
+                last_z = ret[0] if isinstance(ret, tuple) else ret
+                z_list.append(last_z)
+
+            z = torch.stack(z_list[1: ])
+            z = torch.split(z, bsz, dim=1)
+        else:
+            raise NotImplementedError
+
+        x = self.proj.latent_to_obs(z)
         return x
     
     def set_mode(self, mode):
@@ -141,10 +237,23 @@ class MetaRNN(nn.Module):
     def __init__(self, config: SupervisedLearningBaseConfig, datum_size):
         super().__init__()
 
+        self.use_low_dim_rnn = config.use_low_dim_rnn
+        self.shared_low_dim_rnn = config.shared_rnn
+        if config.use_low_dim_rnn:
+            self.encoder_projs = nn.ModuleList([nn.Linear(size, config.hidden_size) for size in datum_size])
+            self.decoder_projs = nn.ModuleList([nn.Linear(config.hidden_size, size) for size in datum_size])
+            if config.shared_rnn:
+                datum_size = [config.hidden_size]
+            else:
+                datum_size = [config.hidden_size for _ in datum_size]
+
         if config.algorithm == 'maml':
             self.model = MAML(config, datum_size)
         elif config.algorithm == 'none':
             self.model = RNNBaseline(config, datum_size)
+        elif config.algorithm == 'fixed':
+            self.model = MAML(config, datum_size)
+            config.inner_train_step = config.inner_test_time_train_step = 0
         else:
             raise ValueError(f"Unknown algorithm {config.algorithm}")
         self.datum_size = datum_size
@@ -171,6 +280,16 @@ class MetaRNN(nn.Module):
             ret.append(pred_list)
 
         return ret
+
+    def predict(self, x, id, inner_params, pred_step=1, teacher_forcing=True):
+        rnn_id = id
+        if self.use_low_dim_rnn:
+            x = self.encoder_projs[id](x)
+            rnn_id = 0 if self.shared_low_dim_rnn else id
+        pred = self.model(x, rnn_id, inner_params, pred_step=pred_step, teacher_forcing=teacher_forcing)
+        if self.use_low_dim_rnn:
+            pred = self.decoder_projs[id](pred)
+        return pred
     
     def train_rnn(self, activity: torch.Tensor, id, pred_step=1):
 
@@ -178,11 +297,14 @@ class MetaRNN(nn.Module):
         
         with torch.set_grad_enabled(True):
 
-            module: nn.Module = self.model.get_inner_params(id)
+            rnn_id = id
+            if self.use_low_dim_rnn:
+                rnn_id = 0 if self.shared_low_dim_rnn else id
+            module: nn.Module = self.model.get_inner_params(rnn_id)
             loss_list = []
 
-            for step in range(train_step):
-                pred = self.model(activity[: -1], id, module, pred_step=1, teacher_forcing=self.teacher_forcing)
+            for step in range(train_step): 
+                pred = self.predict(activity[: -1], id, module, pred_step=1, teacher_forcing=self.teacher_forcing)
                 target = activity[1:]
                 loss = F.mse_loss(pred, target)
                 grad = torch.autograd.grad(loss, module.parameters(), create_graph=True)
@@ -196,7 +318,7 @@ class MetaRNN(nn.Module):
         test_time_teacher_forcing = True
         if self.training and not self.teacher_forcing:
             test_time_teacher_forcing = False
-        pred = self.model(activity, id, module, pred_step=pred_step, teacher_forcing=test_time_teacher_forcing)
+        pred = self.predict(activity, id, module, pred_step=pred_step, teacher_forcing=test_time_teacher_forcing)
         return pred
     
     def set_mode(self, mode):

@@ -57,7 +57,7 @@ def auto_name(configs_dict, config_diffs):
     return new_config_dict
 
 
-def save_config(config, save_path, also_save_as_text=True):
+def save_config(config, save_path, also_save_as_text=True, show_message=True):
     """
     Save config.
     adapted from https://github.com/gyyang/olfaction_evolution
@@ -67,15 +67,18 @@ def save_config(config, save_path, also_save_as_text=True):
         if not config.overwrite and os.path.exists(file_path):
             try:
                 exp_data = pd.read_table(file_path)
-                if len(exp_data['TestAcc']) == config.max_batch // config.log_every + 1:
-                    logging.warning('Save dir {} already exists and training is already done. '.format(save_path)
-                            + 'Skipped. (to overwrite, set config.overwrite = True instead)')
+                # TODO: check the last line of the file
+                if len(exp_data.index) == config.max_batch // config.log_every:
+                    if show_message:
+                        logging.warning('Save dir {} already exists and training is already done. '.format(save_path)
+                                + 'Skipped. (to overwrite use -o)')
                     return False
             except:
                 pass
         
-        logging.warning('Save dir {} already exists!'.format(save_path)
-                        + 'Storing info there anyway. ')
+        if show_message:
+            logging.warning('Save dir {} already exists!'.format(save_path)
+                            + 'Storing info there anyway. ')
     else:
         os.makedirs(save_path)
 

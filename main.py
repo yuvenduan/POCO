@@ -91,7 +91,7 @@ def get_idle_gpu(subprocess_list):
                 return idx
         time.sleep(10)
 
-def train_experiment(experiment, on_cluster, on_server, partition, account):
+def train_experiment(experiment, on_cluster, on_server, partition, account, overwrite=False):
     """Train model across platforms given experiment name.
     adapted from https://github.com/gyyang/olfaction_evolution
     Args:
@@ -118,9 +118,19 @@ def train_experiment(experiment, on_cluster, on_server, partition, account):
     assert isinstance(exp_configs[0], BaseConfig), \
         'exp_configs should be list of configs'
 
+    count = 0
+    for config in exp_configs:
+        config.overwrite = overwrite
+        if save_config(config, config.save_path):
+            count += 1
+
+    # prompt if user wants to continue
+    if input(f'Continue running {count} jobs? (y/n)') != 'y':
+        return return_ids
+
     if on_cluster:
         for config in exp_configs:
-            if not save_config(config, config.save_path):
+            if not save_config(config, config.save_path, show_message=False):
                 continue
             python_cmd = train_cmd(config)
             job_n = config.experiment_name + '_' + config.model_name
@@ -146,7 +156,7 @@ def train_experiment(experiment, on_cluster, on_server, partition, account):
         subprocesses = [None for _ in range(num_gpus)]
 
         for config in exp_configs:
-            if not save_config(config, config.save_path):
+            if not save_config(config, config.save_path, show_message=False):
                 continue
             id = get_idle_gpu(subprocesses)
             cmd = f'export CUDA_VISIBLE_DEVICES={id}' + '\n' + train_cmd(config)
@@ -204,6 +214,7 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--server', action='store_true', help='Run experiments on a Linux server with multiple GPUs')
     parser.add_argument('-p', '--partition', default='kempner', help='Partition of resource on cluster to use')
     parser.add_argument('--acc', default='kempner_krajan_lab', help='Account to use on cluster')
+    parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite existing complete runs')
     
     args = parser.parse_args()
     experiments2train = args.train
@@ -219,7 +230,7 @@ if __name__ == '__main__':
     train_ids = []
     if experiments2train:
         for exp in experiments2train:
-            exp_ids = train_experiment(exp, on_cluster=use_cluster, on_server=use_server, partition=args.partition, account=args.acc)
+            exp_ids = train_experiment(exp, on_cluster=use_cluster, on_server=use_server, partition=args.partition, account=args.acc, overwrite=args.overwrite)
             train_ids += exp_ids
 
     if experiments2analyze:

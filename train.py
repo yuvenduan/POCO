@@ -204,8 +204,8 @@ def model_train(config: SupervisedLearningBaseConfig):
             if i_b % config.log_every == config.log_every - 1:
 
                 logger.log_tabular('Epoch', epoch)
-                logger.log_tabular('BatchNum', i_b)
-                logger.log_tabular('DataNum', i_b * config.batch_size * train_data.num_datasets)
+                logger.log_tabular('BatchNum', i_b + 1)
+                logger.log_tabular('DataNum', (i_b + 1) * config.batch_size * train_data.num_datasets)
                 logger.log_tabular('TrainLoss', train_loss / config.log_every)
 
                 model_test(net, config, test_data, task_func, logger, testloss_list, i_b, train_loss / config.log_every)

@@ -69,6 +69,8 @@ def model_init(config_: BaseConfig, datum_size, mode='train'):
         model = models.MultiFishSeqVAE(config_, datum_size=datum_size)
     elif config_.model_type == 'Conv':
         model = models.Conv(config_, datum_size=datum_size)
+    elif config_.model_type == 'LatentModel':
+        model = models.LatentModel(config_, datum_size=datum_size)
     else:
         raise NotImplementedError("Model not Implemented")
 

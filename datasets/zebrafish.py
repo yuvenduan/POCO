@@ -2,7 +2,7 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'Simulation']
+__all__ = ['Zebrafish', 'Simulation', 'VisualZebrafish']
 
 import torch
 import torch.utils.data as tud
@@ -13,8 +13,8 @@ import logging
 import os
 
 from configs.configs import NeuralPredictionConfig
-from configs.config_global import PROCESSED_DIR, SIM_DIR
-from utils.data_utils import get_exp_names
+from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR
+from utils.data_utils import get_exp_names, get_subject_ids
 
 class NeuralDataset(tud.Dataset):
 
@@ -32,6 +32,8 @@ class NeuralDataset(tud.Dataset):
         self.animal_id = []
         self.datum_size = []
         self.pred_length = config.pred_length
+        self.stimuli_dim = config.stimuli_dim
+        self.normalize_coef = []
 
         animal_idx = 0
         all_activities = self.load_all_activities(config)
@@ -45,7 +47,7 @@ class NeuralDataset(tud.Dataset):
                 length = min(length, config.train_data_length)
             patch_length = config.patch_length
             segments = max(1, length // patch_length)
-            self.datum_size.append(all_activity.shape[0])
+            self.datum_size.append(all_activity.shape[0] - self.stimuli_dim)
 
             if config.normalize_mode == 'minmax':
                 Min = all_activity.min(axis=1, keepdims=True)
@@ -53,12 +55,14 @@ class NeuralDataset(tud.Dataset):
                 all_activity = (all_activity - Min) / (Max - Min + 1e-4)
                 all_activity = all_activity * 2 - 1
                 assert np.all(all_activity >= -1) and np.all(all_activity <= 1)
+                self.normalize_coef.append((Max - Min).reshape(-1) / 2)
             elif config.normalize_mode == 'zscore':
                 Mean = all_activity.mean(axis=1, keepdims=True)
                 Std = all_activity.std(axis=1, keepdims=True)
                 all_activity = (all_activity - Mean) / (Std + 1e-4)
+                self.normalize_coef.append(Std.reshape(-1))
             elif config.normalize_mode == 'none':
-                pass
+                self.normalize_coef.append(np.ones((all_activity.shape[0], )))
             else:
                 raise NotImplementedError(config.normalize_mode)
 
@@ -101,7 +105,10 @@ class NeuralDataset(tud.Dataset):
         act_list = []
         for idx in range(len(self)):
             data, info = self[idx]
-            error = data[-self.pred_length: ] - data[-self.pred_length - 1]
+            # coef = self.normalize_coef[info['animal_idx']]
+            target_dim = data.shape[1] - self.stimuli_dim
+            error = data[-self.pred_length: , : target_dim] - data[-self.pred_length - 1, : target_dim] # L * D
+            # error = error * coef
             loss_list.append(error.reshape(-1))
             act_list.append(data[-self.pred_length: ].reshape(-1))
 
@@ -138,22 +145,27 @@ class NeuralDataset(tud.Dataset):
         info_list = []
         for animal_idx, indices in enumerate(animal_indices):
             if len(indices) == 0:
-                input_list.append(torch.zeros(self.seq_length - self.pred_length, 0, self.datum_size[animal_idx]))
+                input_list.append(torch.zeros(self.seq_length - self.pred_length, 0, self.datum_size[animal_idx] + self.stimuli_dim))
                 target_list.append(torch.zeros(self.seq_length - 1, 0, self.datum_size[animal_idx]))
-                info_list.append({'animal_idx': animal_idx, 'time_idx': []})
+                info_list.append({'animal_idx': animal_idx, 'time_idx': [], 'normalize_coef': self.normalize_coef[animal_idx]})
                 continue
 
             data = torch.stack([batch[idx][0] for idx in indices], dim=1) # L * B * D
             input_list.append(data[: -self.pred_length])
+            target_dim = data.shape[2] - self.stimuli_dim
 
             if self.target_mode == 'raw':
-                target_list.append(data[1: ])
+                target_list.append(data[1:, :, : target_dim])
             elif self.target_mode == 'derivative':
-                target_list.append(data[1: ] - data[: -1])
+                target_list.append(data[1:, :, : target_dim] - data[: -1, :, : target_dim])
             else:
                 raise NotImplementedError
 
-            info_list.append({'animal_idx': animal_idx, 'time_idx': [batch[idx][1]['time_idx'] for idx in indices]})
+            info_list.append({
+                'animal_idx': animal_idx, 
+                'time_idx': [batch[idx][1]['time_idx'] for idx in indices],
+                'normalize_coef': self.normalize_coef[animal_idx]
+            })
 
         return input_list, target_list, info_list
 
@@ -168,12 +180,39 @@ class Zebrafish(NeuralDataset):
                     continue
 
                 filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
+                if config.sampling_rate != 1:
+                    print(f'Warning: Using sampling rate {config.sampling_rate}')
 
                 with np.load(filename) as fishdata:
                     if config.pc_dim is None:
-                        all_activity: np.ndarray = fishdata['M']
+                        all_regions = [
+                            'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
+                            'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
+                        ]
+                        roi_indices = [fishdata[region] for region in all_regions]
+                        
+                        if config.brain_regions == 'all':
+                            all_activity: np.ndarray = fishdata['M'][fishdata['valid_indices'], ::config.sampling_rate]
+                        elif config.brain_regions == 'average':
+                            all_activity = np.empty((len(all_regions), fishdata['M'].shape[1] // config.sampling_rate))
+                            for i, roi_index in enumerate(roi_indices):
+                                if np.sum(roi_index) == 0:
+                                    all_activity[i] = np.zeros((fishdata['M'].shape[1] // config.sampling_rate, ))
+                                else:
+                                    all_activity[i] = fishdata['M'][roi_index].mean(axis=0)[::config.sampling_rate]
+                            assert config.normalize_mode == 'zscore', 'Recommend using zscore normalization when using averaged activity'
+                        else:
+                            if not isinstance(config.brain_regions, (list, tuple)):
+                                config.brain_regions = [config.brain_regions]
+                            use_indices = np.zeros_like(roi_indices[0])
+                            for region in config.brain_regions:
+                                region = 'in_' + region
+                                assert region in all_regions, f'Invalid brain region {region}'
+                                use_indices |= roi_indices[all_regions.index(region)]
+                            all_activity: np.ndarray = fishdata['M'][use_indices, ::config.sampling_rate]
                     else:
-                        all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
+                        assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
+                        all_activity: np.ndarray = fishdata['PC'][: config.pc_dim, ::config.sampling_rate]
                     
                     all_activities.append(all_activity)
         
@@ -182,19 +221,71 @@ class Zebrafish(NeuralDataset):
 class Simulation(NeuralDataset):
 
     def load_all_activities(self, config: NeuralPredictionConfig):
-        filename = os.path.join(SIM_DIR, f'sim_{config.n_neurons}_{config.n_regions}.npz')
+        
+        name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}'
+        if config.sparsity != 1:
+            name += f'_sparsity_{config.sparsity}'
+        filename = os.path.join(SIM_DIR, f'{name}.npz')
 
         data = np.load(filename)
         if config.pc_dim is None:
-            all_activity: np.ndarray = data['M']
+            all_activity: np.ndarray = data['M'][:, ::config.sampling_rate]
+            n = all_activity.shape[0]
+            if config.portion_observable_neurons < 1:
+                n_observable = int(n * config.portion_observable_neurons)
+                all_activity = all_activity[: n_observable]
         else:
-            all_activity: np.ndarray = data['PC'][: config.pc_dim]
+            all_activity: np.ndarray = data['PC'][: config.pc_dim, ::config.sampling_rate]
         
         return [all_activity]
+
+class VisualZebrafish(NeuralDataset):
+
+    def load_all_activities(self, config: NeuralPredictionConfig):
+        subject_ids = get_subject_ids()
+        all_activities = []
+        for id in subject_ids:
+            if config.animal_ids != 'all' and id not in config.animal_ids:
+                continue
+            filename = os.path.join(VISUAL_PROCESSED_DIR, f'subject_{id}.npz')
+
+            with np.load(filename) as fishdata:
+                if config.pc_dim is None:
+                    all_activity: np.ndarray = fishdata['M']
+                else:
+                    all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
+
+                if config.use_eye_movements:
+                    if 'eye' not in fishdata:
+                        print("Subject {} does not have eye movements".format(id))
+                        continue
+                    eye = fishdata['eye_motorseed']
+                    assert np.all(eye != np.nan)
+                    all_activity = np.concatenate([all_activity, eye], axis=0)
+
+                if config.use_motor:
+                    if 'behavior' not in fishdata:
+                        print("Subject {} does not have motor data".format(id))
+                        continue
+                    motor = fishdata['behavior_motorseed']
+                    assert np.all(motor != np.nan)
+                    all_activity = np.concatenate([all_activity, motor], axis=0)
+
+                if config.use_stimuli:
+                    s = fishdata['stim']
+                    # change to one-hot
+                    s = np.eye(config.stimuli_dim)[s].T
+                    all_activity = np.concatenate([all_activity, s], axis=0)
+                    assert config.stimuli_dim == 24
+
+                all_activities.append(all_activity)
+        return all_activities
     
 def get_baseline_performance(config=None, phase='train'):
     if config.dataset == 'zebrafish':
         dataset = Zebrafish(config, phase=phase)
     elif config.dataset == 'simulation':
         dataset = Simulation(config, phase=phase)
+    elif config.dataset == 'zebrafish_visual':
+        dataset = VisualZebrafish(config, phase=phase)
     return min(dataset.copy_performance, dataset.chance_performance)

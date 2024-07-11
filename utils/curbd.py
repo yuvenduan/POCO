@@ -257,7 +257,9 @@ def threeRegionSim(number_units=100,
                    bumpStd=0.2,
                    plotSim=True,
                    fig_save_name=None,
-                   smooth=1):
+                   noise_std=0,
+                   sparsity=1,
+                   one_region=False):
     """
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %
@@ -319,139 +321,153 @@ def threeRegionSim(number_units=100,
 
     # set up RNN A (chaotic responder)
     Ja = npr.randn(Na, Na)
-    Ja = ga / math.sqrt(Na) * Ja
+    mask = npr.rand(Na, Na) < sparsity
+    Ja = ga / math.sqrt(Na * sparsity) * Ja * mask
     hCa = 2 * npr.rand(Na, 1) - 1  # start from random state
 
-    # set up RNN B (driven by sequence)
-    Jb = npr.randn(Nb, Nb)
-    Jb = gb / math.sqrt(Na) * Jb
-    hCb = 2 * npr.rand(Nb, 1) - 1  # start from random state
+    if not one_region:
+        # set up RNN B (driven by sequence)
+        Jb = npr.randn(Nb, Nb)
+        Jb = gb / math.sqrt(Na) * Jb
+        hCb = 2 * npr.rand(Nb, 1) - 1  # start from random state
 
-    # set up RNN C (driven by fixed point)
-    Jc = npr.randn(Nc, Nc)
-    Jc = gb / math.sqrt(Na) * Jc
-    hCc = 2 * npr.rand(Nc, 1) - 1  # start from random state
+        # set up RNN C (driven by fixed point)
+        Jc = npr.randn(Nc, Nc)
+        Jc = gb / math.sqrt(Na) * Jc
+        hCc = 2 * npr.rand(Nc, 1) - 1  # start from random state
 
-    # generate external inputs
-    # set up sequence-driving network
-    xBump = np.zeros((Nb, len(tData)))
-    sig = bumpStd*Nb  # width of bump in N units
+        # generate external inputs
+        # set up sequence-driving network
+        xBump = np.zeros((Nb, len(tData)))
+        sig = bumpStd*Nb  # width of bump in N units
 
-    norm_by = 2*sig ** 2
-    cut_off = math.ceil(len(tData)/2  * (1 - bumpStd * 2))
-    for i in range(Nb):
-        stuff = (i - sig - Nb * tData / (tData[-1] / 2)) ** 2 / norm_by
-        xBump[i, :] = np.exp(-stuff)
-        xBump[i, cut_off:] = xBump[i, cut_off]
+        norm_by = 2*sig ** 2
+        cut_off = math.ceil(len(tData)/2  * (1 - bumpStd * 2))
+        for i in range(Nb):
+            stuff = (i - sig - Nb * tData / (tData[-1] / 2)) ** 2 / norm_by
+            xBump[i, :] = np.exp(-stuff)
+            xBump[i, cut_off:] = xBump[i, cut_off]
 
-    hBump = np.log((xBump+0.01)/(1-xBump+0.01))
-    hBump = hBump-np.min(hBump)
-    hBump = hBump/np.max(hBump)
+        hBump = np.log((xBump+0.01)/(1-xBump+0.01))
+        hBump = hBump-np.min(hBump)
+        hBump = hBump/np.max(hBump)
 
-    # set up fixed points driving network
+        # set up fixed points driving network
 
-    xFP = np.zeros((Nc, len(tData)))
-    cut_off = math.ceil(len(tData)/2) + math.ceil(2 * sig)
-    for i in range(Nc):
-        front = xBump[i, 10] * np.ones((1, cut_off))
-        back = xBump[i, -10] * np.ones((1, len(tData)-cut_off))
-        xFP[i, :] = np.concatenate((front, back), axis=1)
-    hFP = np.log((xFP+0.01)/(1-xFP+0.01))
-    hFP = hFP - np.min(hFP)
-    hFP = hFP/np.max(hFP)
+        xFP = np.zeros((Nc, len(tData)))
+        cut_off = math.ceil(len(tData)/2) + math.ceil(2 * sig)
+        for i in range(Nc):
+            front = xBump[i, 10] * np.ones((1, cut_off))
+            back = xBump[i, -10] * np.ones((1, len(tData)-cut_off))
+            xFP[i, :] = np.concatenate((front, back), axis=1)
+        hFP = np.log((xFP+0.01)/(1-xFP+0.01))
+        hFP = hFP - np.min(hFP)
+        hFP = hFP/np.max(hFP)
 
-    # add the lead time
-    extratData = np.arange(tData[-1] + dtData, T + leadTime + dtData * 0.5, dtData)
-    tData = np.concatenate((tData, extratData))
+        # add the lead time
+        extratData = np.arange(tData[-1] + dtData, T + leadTime + dtData * 0.5, dtData)
+        tData = np.concatenate((tData, extratData))
 
-    newmat = np.tile(hBump[:, 1, np.newaxis], (1, math.ceil(leadTime/dtData)))
-    hBump = np.concatenate((newmat, hBump), axis=1)
+        newmat = np.tile(hBump[:, 1, np.newaxis], (1, math.ceil(leadTime/dtData)))
+        hBump = np.concatenate((newmat, hBump), axis=1)
 
-    newmat = np.tile(hFP[:, 1, np.newaxis], (1, math.ceil(leadTime/dtData)))
-    hFP = np.concatenate((newmat, hFP), axis=1)
+        newmat = np.tile(hFP[:, 1, np.newaxis], (1, math.ceil(leadTime/dtData)))
+        hFP = np.concatenate((newmat, hFP), axis=1)
 
-    # build connectivity between RNNs
-    Nfrac = int(fracInterReg*number_units)
+        # build connectivity between RNNs
+        Nfrac = int(fracInterReg*number_units)
 
-    rand_idx = npr.permutation(number_units)
-    w_A2B = np.zeros((number_units, 1))
-    w_A2B[rand_idx[0:Nfrac]] = 1
+        rand_idx = npr.permutation(number_units)
+        w_A2B = np.zeros((number_units, 1))
+        w_A2B[rand_idx[0:Nfrac]] = 1
 
-    rand_idx = npr.permutation(number_units)
-    w_A2C = np.zeros((number_units, 1))
-    w_A2C[rand_idx[0:Nfrac]] = 1
+        rand_idx = npr.permutation(number_units)
+        w_A2C = np.zeros((number_units, 1))
+        w_A2C[rand_idx[0:Nfrac]] = 1
 
-    rand_idx = npr.permutation(number_units)
-    w_B2A = np.zeros((number_units, 1))
-    w_B2A[rand_idx[0:Nfrac]] = 1
+        rand_idx = npr.permutation(number_units)
+        w_B2A = np.zeros((number_units, 1))
+        w_B2A[rand_idx[0:Nfrac]] = 1
 
-    rand_idx = npr.permutation(number_units)
-    w_B2C = np.zeros((number_units, 1))
-    w_B2C[rand_idx[0:Nfrac]] = 1
+        rand_idx = npr.permutation(number_units)
+        w_B2C = np.zeros((number_units, 1))
+        w_B2C[rand_idx[0:Nfrac]] = 1
 
-    rand_idx = npr.permutation(number_units)
-    w_C2A = np.zeros((number_units, 1))
-    w_C2A[rand_idx[0:Nfrac]] = 1
+        rand_idx = npr.permutation(number_units)
+        w_C2A = np.zeros((number_units, 1))
+        w_C2A[rand_idx[0:Nfrac]] = 1
 
-    rand_idx = npr.permutation(number_units)
-    w_C2B = np.zeros((number_units, 1))
-    w_C2B[rand_idx[0:Nfrac]] = 1
+        rand_idx = npr.permutation(number_units)
+        w_C2B = np.zeros((number_units, 1))
+        w_C2B[rand_idx[0:Nfrac]] = 1
 
-    # Sequence only projects to B
-    Nfrac = int(fracExternal * number_units)
-    rand_idx = npr.permutation(number_units)
-    w_Seq2B = np.zeros((number_units, 1))
-    w_Seq2B[rand_idx[0:Nfrac]] = 1
+        # Sequence only projects to B
+        Nfrac = int(fracExternal * number_units)
+        rand_idx = npr.permutation(number_units)
+        w_Seq2B = np.zeros((number_units, 1))
+        w_Seq2B[rand_idx[0:Nfrac]] = 1
 
-    # Fixed point only projects to A
-    Nfrac = int(fracExternal * number_units)
-    rand_idx = npr.permutation(number_units)
-    w_Fix2C = np.zeros((number_units, 1))
-    w_Fix2C[rand_idx[0:Nfrac]] = 1
+        # Fixed point only projects to A
+        Nfrac = int(fracExternal * number_units)
+        rand_idx = npr.permutation(number_units)
+        w_Fix2C = np.zeros((number_units, 1))
+        w_Fix2C[rand_idx[0:Nfrac]] = 1
 
     # generate time series simulated data
     Ra = np.empty((Na, len(tData)))
     Ra[:] = np.NaN
 
-    Rb = np.empty((Nb, len(tData)))
-    Rb[:] = np.NaN
+    if not one_region:
+        Rb = np.empty((Nb, len(tData)))
+        Rb[:] = np.NaN
 
-    Rc = np.empty((Nc, len(tData)))
-    Rc[:] = np.NaN
+        Rc = np.empty((Nc, len(tData)))
+        Rc[:] = np.NaN
 
     for tt in tqdm(range(len(tData))):
+        if noise_std > 0:
+            coef = np.sqrt(2 * dtData / tau)
+            hCa = hCa + noise_std * npr.randn(Na, 1) * coef
+            if not one_region:
+                hCb = hCb + noise_std * npr.randn(Nb, 1) * coef
+                hCc = hCc + noise_std * npr.randn(Nc, 1) * coef
+
         Ra[:, tt, np.newaxis] = np.tanh(hCa)
-        Rb[:, tt, np.newaxis] = np.tanh(hCb)
-        Rc[:, tt, np.newaxis] = np.tanh(hCc)
+        if not one_region:
+            Rb[:, tt, np.newaxis] = np.tanh(hCb)
+            Rc[:, tt, np.newaxis] = np.tanh(hCc)
         # chaotic responder
         JRa = Ja.dot(Ra[:, tt, np.newaxis])
-        JRa += ampInterReg * w_B2A * Rb[:, tt, np.newaxis]
-        JRa += ampInterReg * w_C2A * Rc[:, tt, np.newaxis]
+        if not one_region:
+            JRa += ampInterReg * w_B2A * Rb[:, tt, np.newaxis]
+            JRa += ampInterReg * w_C2A * Rc[:, tt, np.newaxis]
         hCa = hCa + dtData * (-hCa + JRa) / tau
 
-        # sequence driven
-        JRb = Jb.dot(Rb[:, tt, np.newaxis])
-        JRb += ampInterReg * w_A2B * Ra[:, tt, np.newaxis]
-        JRb += ampInterReg * w_C2B * Rc[:, tt, np.newaxis]
-        JRb += ampInB * w_Seq2B * hBump[:, tt, np.newaxis]
-        hCb = hCb + dtData * (-hCb + JRb) / tau
+        if not one_region:
+            # sequence driven
+            JRb = Jb.dot(Rb[:, tt, np.newaxis])
+            JRb += ampInterReg * w_A2B * Ra[:, tt, np.newaxis]
+            JRb += ampInterReg * w_C2B * Rc[:, tt, np.newaxis]
+            JRb += ampInB * w_Seq2B * hBump[:, tt, np.newaxis]
+            hCb = hCb + dtData * (-hCb + JRb) / tau
 
-        # fixed point driven
-        JRc = Jc.dot(Rc[:, tt, np.newaxis])
-        JRc += ampInterReg * w_B2C * Rb[:, tt, np.newaxis]
-        JRc += ampInterReg * w_A2C * Ra[:, tt, np.newaxis]
-        JRc += ampInC * w_Fix2C * hFP[:, tt, np.newaxis]
-        hCc = hCc + dtData * (-hCc + JRc) / tau
+            # fixed point driven
+            JRc = Jc.dot(Rc[:, tt, np.newaxis])
+            JRc += ampInterReg * w_B2C * Rb[:, tt, np.newaxis]
+            JRc += ampInterReg * w_A2C * Ra[:, tt, np.newaxis]
+            JRc += ampInC * w_Fix2C * hFP[:, tt, np.newaxis]
+            hCc = hCc + dtData * (-hCc + JRc) / tau
 
-    # package up outputs
-    Rseq = hBump.copy()
-    Rfp = hFP.copy()
     # normalize
     Ra = Ra/np.max(Ra)
-    Rb = Rb/np.max(Rb)
-    Rc = Rc/np.max(Rc)
-    Rseq = Rseq/np.max(Rseq)
-    Rfp = Rfp/np.max(Rfp)
+    if not one_region:
+        # package up outputs
+        Rseq = hBump.copy()
+        Rfp = hFP.copy()
+        Rb = Rb/np.max(Rb)
+        Rc = Rc/np.max(Rc)
+        Rseq = Rseq/np.max(Rseq)
+        Rfp = Rfp/np.max(Rfp)
 
     out_params = {}
     out_params['Na'] = Na
@@ -473,22 +489,23 @@ def threeRegionSim(number_units=100,
 
     out = {}
     out['Ra'] = Ra
-    out['Rb'] = Rb
-    out['Rc'] = Rc
-    out['Rseq'] = Rseq
-    out['Rfp'] = Rfp
-    out['tData'] = tData
     out['Ja'] = Ja
-    out['Jb'] = Jb
-    out['Jc'] = Jc
-    out['w_A2B'] = w_A2B
-    out['w_A2C'] = w_A2C
-    out['w_B2A'] = w_B2A
-    out['w_B2C'] = w_B2C
-    out['w_C2A'] = w_C2A
-    out['w_C2B'] = w_C2B
-    out['w_Fix2C'] = w_Fix2C
-    out['w_Seq2B'] = w_Seq2B
+    if not one_region:
+        out['Rb'] = Rb
+        out['Rc'] = Rc
+        out['Rseq'] = Rseq
+        out['Rfp'] = Rfp
+        out['Jb'] = Jb
+        out['Jc'] = Jc
+        out['w_A2B'] = w_A2B
+        out['w_A2C'] = w_A2C
+        out['w_B2A'] = w_B2A
+        out['w_B2C'] = w_B2C
+        out['w_C2A'] = w_C2A
+        out['w_C2B'] = w_C2B
+        out['w_Fix2C'] = w_Fix2C
+        out['w_Seq2B'] = w_Seq2B
+    out['tData'] = tData
     out['params'] = out_params
 
     if plotSim is True:
@@ -512,44 +529,45 @@ def threeRegionSim(number_units=100,
         ax.set_ylim(-1, 1)
         ax.set_title('units from RNN A')
 
-        ax = fig.add_subplot(4, 3, 4)
-        ax.pcolormesh(tData, range(Nb), Rb)
-        ax.set_title('RNN B - g={}'.format(gb))
+        if not one_region:
+            ax = fig.add_subplot(4, 3, 4)
+            ax.pcolormesh(tData, range(Nb), Rb)
+            ax.set_title('RNN B - g={}'.format(gb))
 
-        ax = fig.add_subplot(4, 3, 5)
-        ax.pcolormesh(range(Nb), range(Nb), Jb)
-        ax.set_title('DI matrix B')
+            ax = fig.add_subplot(4, 3, 5)
+            ax.pcolormesh(range(Nb), range(Nb), Jb)
+            ax.set_title('DI matrix B')
 
-        ax = fig.add_subplot(4, 3, 6)
-        for _ in range(3):
-            idx = random.randint(0, Nb-1)
-            ax.plot(tData, Rb[idx, :])
-        ax.set_ylim(-1, 1)
-        ax.set_title('units from RNN B')
+            ax = fig.add_subplot(4, 3, 6)
+            for _ in range(3):
+                idx = random.randint(0, Nb-1)
+                ax.plot(tData, Rb[idx, :])
+            ax.set_ylim(-1, 1)
+            ax.set_title('units from RNN B')
 
-        ax = fig.add_subplot(4, 3, 7)
-        ax.pcolormesh(tData, range(Nc), Rc)
-        ax.set_title('RNN C - g={}'.format(gc))
+            ax = fig.add_subplot(4, 3, 7)
+            ax.pcolormesh(tData, range(Nc), Rc)
+            ax.set_title('RNN C - g={}'.format(gc))
 
-        ax = fig.add_subplot(4, 3, 8)
-        ax.pcolormesh(range(Nc), range(Nc), Jc)
-        ax.set_title('DI matrix C')
+            ax = fig.add_subplot(4, 3, 8)
+            ax.pcolormesh(range(Nc), range(Nc), Jc)
+            ax.set_title('DI matrix C')
 
-        ax = fig.add_subplot(4, 3, 9)
-        for _ in range(3):
-            idx = random.randint(0, Nc-1)
-            ax.plot(tData, Rc[idx, :])
-        ax.set_ylim(-1, 1)
-        ax.set_title('units from RNN C')
+            ax = fig.add_subplot(4, 3, 9)
+            for _ in range(3):
+                idx = random.randint(0, Nc-1)
+                ax.plot(tData, Rc[idx, :])
+            ax.set_ylim(-1, 1)
+            ax.set_title('units from RNN C')
 
-        ax = fig.add_subplot(4, 3, 10)
-        ax.pcolormesh(tData, range(Nc), Rfp)
-        ax.set_title('Fixed Point Driver')
+            ax = fig.add_subplot(4, 3, 10)
+            ax.pcolormesh(tData, range(Nc), Rfp)
+            ax.set_title('Fixed Point Driver')
 
-        ax = fig.add_subplot(4, 3, 11)
-        ax.pcolormesh(tData, range(Nc), Rseq)
-        ax.set_title('Sequence Driver')
-        plt.pause(0.05)
+            ax = fig.add_subplot(4, 3, 11)
+            ax.pcolormesh(tData, range(Nc), Rseq)
+            ax.set_title('Sequence Driver')
+            plt.pause(0.05)
 
         fig_path = os.path.join(FIG_DIR, 'sim', fig_save_name)
         fig.savefig(fig_path)

@@ -71,26 +71,30 @@ class NeuralPrediction(TaskFunction):
         self.do_analysis = config.do_analysis
         self.loss_mode = config.loss_mode
         self.pred_step = config.pred_length
+        assert self.pred_step > 0
         self.config = config
 
     def roll(self, model: nn.Module, data_batch: tuple, phase: str = 'train'):
         train_flag = phase == 'train'
         
-        input, target, info = data_batch
+        input, target, info_list = data_batch
         input, target = data_batch_to_device((input, target))
         output = model(input, pred_step=self.pred_step)
+
+        # print(len(input), len(target), len(output), type(input), type(target), type(output))
     
-        task_loss = 0
+        task_loss = torch.zeros(1).to(DEVICE)
         pred_num = 0
 
-        for inp, out, tar in zip(input, output, target):
+        for inp, out, tar, info in zip(input, output, target, info_list):
+            # print(inp.shape, out.shape, tar.shape)
             if target is None or np.prod(tar.shape) == 0:
                 continue
 
             if isinstance(model, MultiFishSeqVAE):
                 tar = torch.cat([inp[: 1], tar], dim=0) # reconstruction loss for vae includes the first frame
 
-            loss_array = F.mse_loss(out, tar, reduction='none')
+            loss_array = F.mse_loss(out, tar, reduction='none') # shape: L, B, D
             self.data[phase].append((
                 out.detach().cpu().numpy(),
                 tar.detach().cpu().numpy(),
@@ -104,10 +108,11 @@ class NeuralPrediction(TaskFunction):
                 tar = tar[-self.pred_step: ]
             else:
                 assert self.loss_mode == 'autoregressive'
+            # coef = torch.from_numpy(info['normalize_coef']).to(DEVICE)
             task_loss += self.criterion(out, tar) # shape: L, B, D
             pred_num += np.prod(tar.shape)
 
-        task_loss = task_loss / pred_num
+        task_loss = task_loss / max(1, pred_num)
         if isinstance(model, MultiFishSeqVAE):
             task_loss += model.kl_loss * self.config.kl_loss_coef / self.config.batch_size
 
