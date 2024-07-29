@@ -28,9 +28,9 @@ class BaseConfig(object):
 
         # Specify required resources (useful when running on cluster)
         self.hours = 24
-        self.mem = 16
-        self.cpu = 2 
-        self.num_workers = 1
+        self.mem = 32
+        self.cpu = 2
+        self.num_workers = 0
 
         # basic evaluation parameters
         self.store_states = False
@@ -74,7 +74,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # training
         self.num_ep = 100000
-        self.max_batch = 10000
+        self.max_batch = 5000
 
         # evaluation
         self.perform_val = True
@@ -85,15 +85,17 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # autoregressive model config
         self.print_mode = 'error'
-        self.model_type = 'SimpleRNN'
+        self.model_type = 'Autoregressive'
         self.rnn_type = 'LSTM'
         self.num_layers = 1
         self.teacher_forcing = True
         self.shared_backbone = True
+        self.rnn_layernorm = True
 
         # rnn config
         self.hidden_size = 512
-        self.alpha = 0.1
+        self.rnn_alpha = 0.1 # only for LRRNN, CTRNN, PLRNN
+        self.rnn_rank = 4 # only for Low-Rank RNN (LRRNN)
         self.learnable_alpha = False
 
         # meta-rnn model config
@@ -112,8 +114,58 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.decoder_hidden_size = 512
         self.kl_loss_coef = 0.002
 
-        # only used for latent models
+        # TCN model config
+        self.stem_ratio = 6
+        self.downsample_ratio = 1
+        self.ffn_ratio = 1
+        self.patch_size = 4
+        self.patch_stride = 4
+        self.num_blocks = [1]
+        self.large_size = [17]
+        self.small_size = [5]
+        self.dims = [64, 64, 64, 64]
+        self.dw_dims = [64, 64, 64, 64]
+        self.small_kernel_merged = False
+        self.call_structural_reparam = False
+        self.use_multi_scale = False
+
+        self.dropout = 0.3
+        self.kernel_size = 25
+        self.individual = 0
+        self.freq = 'h'
+        self.revin = 1
+        self.affine = 0
+        self.subtract_last = 0
+        self.head_dropout = 0
+        self.decomposition = 0
+
+        # linear model config
+        self.linear_input_length = 10
+        self.per_channel = False # if True, use a separate linear layer for each channel
+        self.autoregressive_prediction = False # if True, predict the next frame based on the previous frames, otherwise predict the next pred_length frames at once
+        self.shared_backbone # if True, use the same linear projection for different individuals
+        self.use_bias = False
+
+        # vqvae model config
+        self.block_hidden_size = 128
+        self.vqvae_embedding_dim = 64
+        self.num_embeddings = 256
+        self.commitment_cost = 0.25
+        self.compression_factor = 4
+        self.num_residual_layers = 2
+        self.res_hidden_size = 64
+
+        # latent model config
         self.tf_interval = 5 
+        self.hidden_size
+        self.rnn_type # only support RNNs without input: CTRNN, PLRNN, ...
+        self.latent_to_ob = 'linear' # or 'identity'
+
+        # decoder config
+        self.encoder_dir = None
+        self.encoder_state_dict_file = f'net_{self.max_batch}.pth'
+        self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
+        self.decoder_hidden_size = 256
 
         self.do_analysis = False
 
@@ -127,8 +179,8 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.dataset = 'zebrafish' # or simulation
         self.exp_types = EXP_TYPES
 
-        self.seq_length = 50 # the total length of a sequence
-        self.pred_length = 10 # the last pred_length frames will be predicted
+        self.seq_length = 64 # the total length of a sequence
+        self.pred_length = 16 # the last pred_length frames will be predicted
         self.train_split = 0.7
         self.val_split = 0.3
         self.target_mode = 'raw' # or 'derivative'
@@ -144,7 +196,7 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         # self.train_fish_ids = [] # all neural data (instead of just first 70%) of fish in this list will be used for training
         self.pc_dim = 512 # number of principal components to used for training, if None, predict original data
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
-        self.sampling_rate = 10 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
+        self.sampling_rate = 1 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
 
         # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
         # or 'average' (in which case we will average the neural activity within each brain region)
@@ -169,3 +221,4 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.test_batch = 10000 # test on all available data 
         self.mem = 32
         self.do_analysis = False
+

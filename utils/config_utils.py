@@ -8,6 +8,16 @@ import pandas as pd
 
 from configs.config_global import ROOT_DIR
 
+def configs_transpose(config_dict, config_shape):
+    """permute configs_dict to config_list"""
+    new_config_dict = dict()
+    for seed, config_list in config_dict.items():
+        new_config_list = []
+        for y in range(config_shape[1]):
+            for x in range(config_shape[0]):
+                new_config_list.append(config_list[x * config_shape[1] + y])
+        new_config_dict[seed] = new_config_list
+    return new_config_dict
 
 def configs_dict_unpack(configs_dict):
     """unpack configs_dict to config_list"""

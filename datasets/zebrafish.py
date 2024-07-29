@@ -93,29 +93,43 @@ class NeuralDataset(tud.Dataset):
         self.seq_length = config.seq_length
         self.data_length = [max(0, data.shape[1] - self.seq_length) for data in self.neural_data]
         self.num_animals = animal_idx
+        self.target_mode = config.target_mode
 
         self.get_chance_performance()
         logging.info(f'Phase {phase}, copy performance: {self.copy_performance:.6f}, chance performance: {self.chance_performance:.6f}')
         logging.info(f'Phase {phase}, num_animals: {self.num_animals}, total patch: {len(self.neural_data)}, datum_size: {self.datum_size}, data_length: {self.data_length}')
 
-        self.target_mode = config.target_mode
-
     def get_chance_performance(self):
         loss_list = []
         act_list = []
+        deriv_list = []
+
         for idx in range(len(self)):
             data, info = self[idx]
-            # coef = self.normalize_coef[info['animal_idx']]
+
             target_dim = data.shape[1] - self.stimuli_dim
-            error = data[-self.pred_length: , : target_dim] - data[-self.pred_length - 1, : target_dim] # L * D
-            # error = error * coef
+            if self.pred_length > 0: # for predicition, calculate the performance when copying the last frame
+                error = data[-self.pred_length: , : target_dim] - data[-self.pred_length - 1, : target_dim] # L * D
+            else: # for reconstruction, calculate the performance when copying the mean
+                error = data[:, : target_dim] - data[:, : target_dim].mean(dim=0)
             loss_list.append(error.reshape(-1))
+
             act_list.append(data[-self.pred_length: ].reshape(-1))
 
-        loss_list = np.concatenate(loss_list)
+            if self.target_mode == 'derivative':
+                deriv_list.append((data[-self.pred_length: ] - data[-self.pred_length - 1: -1]).reshape(-1))
+        
         act_list = np.concatenate(act_list)
+        loss_list = np.concatenate(loss_list)
         self.copy_performance = np.mean(np.square(loss_list))
-        self.chance_performance = np.mean(np.square(act_list - np.mean(act_list)))
+
+        if self.target_mode == 'raw':
+            self.chance_performance = np.mean(np.square(act_list - np.mean(act_list)))
+        elif self.target_mode == 'derivative':
+            deriv_list = np.concatenate(deriv_list)
+            self.chance_performance = np.mean(np.square(deriv_list - np.mean(deriv_list)))
+        else:
+            raise NotImplementedError
 
     def __len__(self):
         return sum(self.data_length)
@@ -151,7 +165,7 @@ class NeuralDataset(tud.Dataset):
                 continue
 
             data = torch.stack([batch[idx][0] for idx in indices], dim=1) # L * B * D
-            input_list.append(data[: -self.pred_length])
+            input_list.append(data[: -self.pred_length] if self.pred_length > 0 else data)
             target_dim = data.shape[2] - self.stimuli_dim
 
             if self.target_mode == 'raw':

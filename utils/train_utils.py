@@ -1,14 +1,11 @@
 import os
 import os.path as osp
-import torch
 import torch.nn as nn
-import models.model as models
 import logging
 
 from torch.nn.utils import clip_grad_norm_
 from configs.configs import BaseConfig
 from tasks import taskfunctions
-from configs.config_global import ROOT_DIR, DEVICE, MAP_LOC
 from datetime import datetime
 
 def grad_clipping(model, max_norm, printing=False):
@@ -57,28 +54,6 @@ def get_grad_norm(model: nn.Module):
     for param in model.parameters():
         g += param.grad.square().sum()
     return g
-
-
-def model_init(config_: BaseConfig, datum_size, mode='train'):
-
-    if config_.model_type == 'SimpleRNN':
-        model = models.SimpleRNN(config_, datum_size=datum_size)
-    elif config_.model_type == 'MetaRNN':
-        model = models.MetaRNN(config_, datum_size=datum_size)
-    elif config_.model_type == 'SeqVAE':
-        model = models.MultiFishSeqVAE(config_, datum_size=datum_size)
-    elif config_.model_type == 'Conv':
-        model = models.Conv(config_, datum_size=datum_size)
-    elif config_.model_type == 'LatentModel':
-        model = models.LatentModel(config_, datum_size=datum_size)
-    else:
-        raise NotImplementedError("Model not Implemented")
-
-    if config_.load_path is not None:
-        model.load_state_dict(torch.load(config_.load_path))
-        
-    model.to(DEVICE)
-    return model
 
 def task_init(config_: BaseConfig):
     """initialize tasks"""

@@ -17,7 +17,8 @@ class CTRNNCell(nn.Module):
             alpha=0.1,
             mul_rnn_noise=0,
             add_rnn_noise=0,
-            learnable_alpha=False
+            learnable_alpha=False,
+            rank=None
         ):
 
         super(CTRNNCell, self).__init__()
@@ -32,7 +33,13 @@ class CTRNNCell(nn.Module):
         self.add_rnn_noise = add_rnn_noise
 
         self.weight_ih = nn.Parameter(torch.zeros((input_size, hidden_size))) if input_size != None else None
-        self.weight_hh = nn.Parameter(torch.zeros((hidden_size, hidden_size)))
+        self.rank = rank
+        if rank is None:    
+            self.weight_hh = nn.Parameter(torch.zeros((hidden_size, hidden_size)))
+        else:
+            self.weight_hh_n = nn.Parameter(torch.zeros((hidden_size, rank)))
+            self.weight_hh_m = nn.Parameter(torch.zeros((rank, hidden_size)))
+
         self.bias = nn.Parameter(torch.zeros(hidden_size))
         self.reset_parameters()
 
@@ -53,7 +60,15 @@ class CTRNNCell(nn.Module):
 
         # add fast weights, if given
         weight_ih = self.weight_ih
-        weight_hh = self.weight_hh
+        if self.rank is None:
+            weight_hh = self.weight_hh
+        else:
+            weight_hh = (self.weight_hh_n @ self.weight_hh_m) * np.sqrt(self.hidden_size / self.rank)
+            identity = torch.eye(self.hidden_size, device=DEVICE)
+            normalized_hh_n = self.weight_hh_n / torch.linalg.norm(self.weight_hh_n, dim=0, ord=2)
+            residual = identity - normalized_hh_n @ normalized_hh_n.T
+            weight_hh = weight_hh + residual
+
         bias = self.bias
         alpha = self.alpha
         if fast_weights is not None:
@@ -66,16 +81,16 @@ class CTRNNCell(nn.Module):
 
         if self.learnable_alpha:
             alpha = torch.clip(alpha, 0.05, 0.99)
-
+        
         # compute pre-activation
         pre_act = torch.matmul(hidden_in, weight_hh) + bias
         if self.input_size is not None:
-            pre_act = torch.matmul(inp, weight_ih)
-
+            pre_act = pre_act + torch.matmul(inp, weight_ih)
         # add noise
         if self.add_rnn_noise > 0:
             pre_act = pre_act + torch.randn_like(pre_act) * np.sqrt(2 / alpha) * self.add_rnn_noise
         hidden_out = (1 - alpha) * hidden_in + alpha * self.act(pre_act)
+
         if self.mul_rnn_noise > 0:
             hidden_out = hidden_out + torch.randn_like(hidden_out) * self.mul_rnn_noise
         
@@ -171,10 +186,11 @@ class Latent_Step(nn.Module):
 
 class PLRNN_Step(Latent_Step):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, alpha=1, **kwargs):
         super(PLRNN_Step, self).__init__(*args, **kwargs)
         self.AW = self.init_AW()
         self.h = self.init_uniform((self.dz, ))
+        self.alpha = alpha
 
     def get_latent_parameters(self):
         '''
@@ -191,7 +207,7 @@ class PLRNN_Step(Latent_Step):
         z = hidden_in
         A, W, h = self.get_latent_parameters()
         z_activated = torch.relu(self.norm(z))
-        z = A * z + z_activated @ W.t() + h
+        z = self.alpha * (A * z + z_activated @ W.t() + h) + (1 - self.alpha) * z
         return self.clip_z_to_range(z)
 
 class PLRNN_Basis_Step(Latent_Step):

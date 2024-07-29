@@ -12,11 +12,10 @@ from configs.config_global import LOG_LEVEL, NP_SEED, TCH_SEED, USE_CUDA, DATA_D
 from configs.configs import BaseConfig, SupervisedLearningBaseConfig
 from datasets.data_sets import DatasetIters
 from tasks.taskfunctions import TaskFunction
+from models.model_utils import model_init
 from utils.config_utils import load_config
 from utils.logger import Logger
-from utils.train_utils import (get_grad_norm, grad_clipping, model_init,
-                               task_init, log_complete)
-
+from utils.train_utils import (get_grad_norm, grad_clipping, task_init, log_complete)
 
 def train_from_path(path):
     """Train from a path with a config file in it."""
@@ -52,7 +51,7 @@ def model_test(
                 loss_weighted, num_weighted, num_corr_weighted = 0, 0, 0
                 for i_tloader, test_iter in enumerate(test_data.data_iters):
                     mod_weight = config.mod_w[i_tloader]
-                    net.set_mode(i_tloader)
+                    # net.set_mode(i_tloader)
 
                     t_data = next(test_iter)
 
@@ -138,7 +137,7 @@ def model_train(config: SupervisedLearningBaseConfig):
         test_data = None
 
     # initialize network
-    net = model_init(config, train_data.datum_sizes[0], mode='train')
+    net = model_init(config, train_data.datum_sizes[0])
 
     # initialize optimizer
     if config.optimizer_type == 'Adam':
@@ -187,7 +186,7 @@ def model_train(config: SupervisedLearningBaseConfig):
 
             for i_loader, train_iter in enumerate(train_data.data_iters):
                 mod_weight = config.mod_w[i_loader]
-                net.set_mode(i_loader)
+                # net.set_mode(i_loader)
 
                 data = next(train_iter)
                 loss += task_func.roll(net, data, 'train') * mod_weight

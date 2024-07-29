@@ -9,7 +9,7 @@ import analysis.plots as plots
 from configs.config_global import DEVICE
 from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 from utils.logger import Logger
-from models.model import MultiFishSeqVAE
+from models import MultiFishSeqVAE, vqvae, Decoder
 from typing import List
 
 def data_batch_to_device(data_b, device=DEVICE):
@@ -58,7 +58,6 @@ class TaskFunction:
         """
         pass
 
-
 class NeuralPrediction(TaskFunction):
     """
     Task function for autoregressive neural prediction
@@ -68,11 +67,21 @@ class NeuralPrediction(TaskFunction):
         self.criterion = nn.MSELoss(reduction='sum')
         self.data = {'train': [], 'val': [], 'test': []}
         self.curves = {'train': [], 'val': [], 'test': []}
+
         self.do_analysis = config.do_analysis
         self.loss_mode = config.loss_mode
         self.pred_step = config.pred_length
-        assert self.pred_step > 0
+        self.target_mode = config.target_mode
         self.config = config
+
+        self.recon_loss_list = {'train': [], 'val': [], 'test': []}
+        self.vae_loss_list = {'train': [], 'val': [], 'test': []}
+
+        assert self.loss_mode in ['prediction', 'autoregressive', 'reconstruction', 'reconstruction_prediction']
+        if self.loss_mode == 'reconstruction':
+            assert self.pred_step == 0, 'reconstruction mode does not support prediction'
+        else:
+            assert self.pred_step > 0, 'prediction step should be larger than 0'
 
     def roll(self, model: nn.Module, data_batch: tuple, phase: str = 'train'):
         train_flag = phase == 'train'
@@ -80,41 +89,45 @@ class NeuralPrediction(TaskFunction):
         input, target, info_list = data_batch
         input, target = data_batch_to_device((input, target))
         output = model(input, pred_step=self.pred_step)
-
-        # print(len(input), len(target), len(output), type(input), type(target), type(output))
     
         task_loss = torch.zeros(1).to(DEVICE)
         pred_num = 0
 
         for inp, out, tar, info in zip(input, output, target, info_list):
-            # print(inp.shape, out.shape, tar.shape)
             if target is None or np.prod(tar.shape) == 0:
                 continue
 
-            if isinstance(model, MultiFishSeqVAE):
-                tar = torch.cat([inp[: 1], tar], dim=0) # reconstruction loss for vae includes the first frame
-
-            loss_array = F.mse_loss(out, tar, reduction='none') # shape: L, B, D
-            self.data[phase].append((
-                out.detach().cpu().numpy(),
-                tar.detach().cpu().numpy(),
-                loss_array.detach().cpu().numpy()
-            ))
-            
-            if isinstance(model, MultiFishSeqVAE):
-                pass
+            if self.loss_mode[: 14] == 'reconstruction':
+                tar = torch.cat([inp[: 1], tar], dim=0)
             elif self.loss_mode == 'prediction':
                 out = out[-self.pred_step: ]
                 tar = tar[-self.pred_step: ]
             else:
                 assert self.loss_mode == 'autoregressive'
-            # coef = torch.from_numpy(info['normalize_coef']).to(DEVICE)
+
+            loss_array = F.mse_loss(out, tar, reduction='none') # shape: L, B, D
+            self.data[phase].append((
+                out.detach().cpu().numpy(),
+                tar.detach().cpu().numpy(),
+                loss_array.detach().cpu().numpy(),
+                inp.detach().cpu().numpy()
+            ))
+
             task_loss += self.criterion(out, tar) # shape: L, B, D
             pred_num += np.prod(tar.shape)
 
         task_loss = task_loss / max(1, pred_num)
+
         if isinstance(model, MultiFishSeqVAE):
+            self.recon_loss_list[phase].append(task_loss.item())
             task_loss += model.kl_loss * self.config.kl_loss_coef / self.config.batch_size
+            self.vae_loss_list[phase].append(model.kl_loss.item() / self.config.batch_size)
+        elif isinstance(model, vqvae):
+            self.recon_loss_list[phase].append(task_loss.item())
+            task_loss += model.vq_loss
+            self.vae_loss_list[phase].append(model.vq_loss.item())
+        # elif isinstance(model, Decoder):
+        #    task_loss += F.mse_loss(model.mu,)
 
         if train_flag:
             return task_loss
@@ -124,6 +137,16 @@ class NeuralPrediction(TaskFunction):
     def after_testing_callback(self, save_path: str, batch_num: int, logger: Logger, is_best: bool, **unused):
         # compute mean loss for the prediction part
         for phase in ['train', 'val']:
+
+            if len(self.recon_loss_list[phase]) > 0:
+                mean_recon_loss = np.mean(self.recon_loss_list[phase])
+                logger.log_tabular(f'{phase}_recon_loss', mean_recon_loss)
+                self.recon_loss_list[phase] = []
+            if len(self.vae_loss_list[phase]) > 0:
+                mean_vae_loss = np.mean(self.vae_loss_list[phase])
+                logger.log_tabular(f'{phase}_vae_loss', mean_vae_loss)
+                self.vae_loss_list[phase] = []
+
             pred_num = 0
             sum_loss = 0
             for data in self.data[phase]:
@@ -141,8 +164,23 @@ class NeuralPrediction(TaskFunction):
                     batch_idx = np.random.randint(len(self.data[phase]))
                     data = self.data[phase][batch_idx]
                     sample_idx = np.random.randint(data[0].shape[1])
-                    preds.append(data[0][:, sample_idx, pc])
-                    targets.append(data[1][:, sample_idx, pc])
+
+                    if self.target_mode == 'raw':
+                        pred = data[0][:, sample_idx, pc]
+                        target = data[1][:, sample_idx, pc]
+                        if self.loss_mode == 'prediction':
+                            inp = data[3][:, sample_idx, pc]
+                            pred = np.concatenate([inp, pred])
+                            target = np.concatenate([inp, target])
+                        preds.append(pred)
+                        targets.append(target)
+                    else:
+                        assert self.loss_mode != 'prediction', 'Not implemented'
+                        inp = data[3][:, sample_idx, pc]
+                        raw_target = inp[-1] + np.cumsum(data[1][-self.pred_step:, sample_idx, pc])
+                        targets.append(np.concatenate([inp[1: ], raw_target]))
+                        pred = inp[-1] + np.cumsum(data[0][-self.pred_step:, sample_idx, pc])
+                        preds.append(np.concatenate([inp[: -1] + data[0][: -self.pred_step, sample_idx, pc], pred]))
 
                 plots.pred_vs_target_plot(
                     list(zip(preds, targets)), 

@@ -1,1 +1,1 @@
-srun -G 1 -t 600 --mem 64000 -p gpu_test --pty bash
+srun -G 1 -t 600 --mem 256000 -p gpu_test --pty bash
