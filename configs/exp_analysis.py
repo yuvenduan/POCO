@@ -112,7 +112,7 @@ def get_lr_curve(cfgs, idx, file_name='lr_info.pth'):
     info = np.stack(info, axis=1)
     return info
 
-def autoregressive_rnns_analysis(
+def compare_model_training_curves(
     cfgs = experiments.autoregressive_rnns(), 
     save_dir = 'autoregressive_rnns', 
     mode_list = ['none', ], 
@@ -120,6 +120,18 @@ def autoregressive_rnns_analysis(
     plot_model_lists = None,
     plot_train_test_curve = True,
 ):
+    """
+    Compare the train/test loss curves of different models, also save the train/val loss curves for each model
+
+    :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
+        The list should be of length len(mode_list) * len(model_list)
+    :param save_dir: the directory to save the figures
+    :param mode_list: a list of modes, this function will compare the models in each mode
+    :param model_list: a list of models to compare
+    :param plot_model_lists: If None, plot all models in model_list; 
+        otherwise should be a dictionary of lists, each entry corresponds to a different plot, the key is the plot name
+    :param plot_train_test_curve: whether to plot the train/test curves
+    """
     
     performance = []
 
@@ -191,39 +203,50 @@ def autoregressive_rnns_analysis(
                 extra_lines=draw_baseline
             )
 
+def test_analysis():
+    cfgs = experiments.test()
+    compare_model_training_curves(
+        cfgs, 'autoregressive_rnns_test',
+        model_list=['S4', 'LSTM', ],
+    )
+
+def autoregressive_rnns_analysis():
+    cfgs = experiments.autoregressive_rnns()
+    compare_model_training_curves(cfgs, 'autoregressive_rnns')
+
 def autoregressive_rnns_visual_analysis():
     cfgs = experiments.autoregressive_rnns_visual_with_stimuli()
-    autoregressive_rnns_analysis(cfgs, 'autoregressive_rnns_visual', ['stimuli_behavior', 'stimuli', 'behavior', 'none'])
+    compare_model_training_curves(cfgs, 'autoregressive_rnns_visual', ['stimuli_behavior', 'stimuli', 'behavior', 'none'])
 
 def autoregressive_rnns_average_analysis():
     cfgs = experiments.autoregressive_rnns_average()
-    autoregressive_rnns_analysis(cfgs, 'autoregressive_rnns_average')
+    compare_model_training_curves(cfgs, 'autoregressive_rnns_average')
 
 def autoregressive_rnns_individual_region_analysis():
     cfgs = experiments.autoregressive_rnns_individual_region()
     region_list = ['l_LHb', 'l_MHb', 'l_ctel', 'l_dthal', 'l_gc', 'l_raphe', 'l_tel', 'l_vent', 'l_vthal', ]
     model_list = ['Transformer', 'RNN', ]
-    autoregressive_rnns_analysis(cfgs, 'autoregressive_rnns_individual_region', region_list, model_list)
+    compare_model_training_curves(cfgs, 'autoregressive_rnns_individual_region', region_list, model_list)
 
 def autoregressive_rnns_sim_analysis():
     cfgs = experiments.autoregressive_rnns_sim()
     model_list = ['Transformer', 'S4', 'LSTM', 'RNN', ]
-    autoregressive_rnns_analysis(cfgs, 'autoregressive_rnns_sim', model_list=model_list)
+    compare_model_training_curves(cfgs, 'autoregressive_rnns_sim', model_list=model_list)
 
 def latent_models_analysis():
     cfgs = experiments.latent_models()
     model_list = ['PLRNN', 'CTRNNCell', ]
-    autoregressive_rnns_analysis(cfgs, 'latent_models', [1, 3, 5, 10, 25], model_list)
+    compare_model_training_curves(cfgs, 'latent_models', [1, 3, 5, 10, 25], model_list)
 
 def latent_models_average_analysis():
     cfgs = experiments.latent_models_average()
     model_list = ['PLRNN', 'CTRNNCell', ]
-    autoregressive_rnns_analysis(cfgs, 'latent_models_average', [64, 128, 512, ], model_list=model_list)
+    compare_model_training_curves(cfgs, 'latent_models_average', [64, 128, 512, ], model_list=model_list)
 
 def latent_models_sim_analysis():
     cfgs = experiments.latent_model_sim()
     model_list = ['PLRNN', 'CTRNNCell', ]
-    autoregressive_rnns_analysis(cfgs, 'latent_models_sim', [1, 3, 5, 10, 25], model_list)
+    compare_model_training_curves(cfgs, 'latent_models_sim', [1, 3, 5, 10, 25], model_list)
 
 def sim_compare_n_neurons_analysis():
     cfgs = experiments.sim_compare_n_neurons()
@@ -310,7 +333,16 @@ def sim_compare_pca_dim_analysis():
                 extra_lines=draw_baseline
             )
 
-def sim_compare_param_analysis(cfgs, param_list, model_list=['Transformer', 'RNN', ], param_name='noise', save_dir='sim_compare_param', plot_model_list=None):
+def compare_param_analysis(
+    cfgs, param_list, 
+    model_list=['Transformer', 'RNN', ], 
+    param_name='noise', 
+    save_dir='sim_compare_param', 
+    plot_model_list=None
+):
+    """
+    For each model, plot the best test loss vs. the parameter
+    """
 
     curves = []
     for i, model in enumerate(model_list):
@@ -351,23 +383,23 @@ def sim_compare_param_analysis(cfgs, param_list, model_list=['Transformer', 'RNN
 def sim_compare_noise_analysis():
     cfgs = experiments.sim_compare_noise()
     param_list = [0, 0.01, 0.03, 0.05, 0.1, 0.2, ]
-    sim_compare_param_analysis(cfgs, param_list, param_name='noise')
+    compare_param_analysis(cfgs, param_list, param_name='noise')
 
 def sim_compare_ga_analysis():
     cfgs = experiments.sim_compare_ga()
     param_list = [1.4, 1.6, 1.8, 2.0, 2.2, ]
-    sim_compare_param_analysis(cfgs, param_list, param_name='ga')
+    compare_param_analysis(cfgs, param_list, param_name='ga')
 
 def sim_partial_obervable_analysis():
     cfgs = experiments.sim_partial_obervable()
     param_list = [1, 0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0.02, 0.01]
-    sim_compare_param_analysis(cfgs, param_list, param_name='portion_observed')
+    compare_param_analysis(cfgs, param_list, param_name='portion_observed')
 
 def sim_compare_sparsity_analysis():
     cfgs = experiments.sim_compare_sparsity()
     param_list = [0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1, ]
     log_param_list = np.log(param_list)
-    sim_compare_param_analysis(cfgs, log_param_list, param_name='log(sparsity)')
+    compare_param_analysis(cfgs, log_param_list, param_name='log(sparsity)')
 
 def sim_compare_train_length_analysis():
     cfgs = experiments.sim_compare_train_length()
@@ -509,7 +541,7 @@ def seqvae_analysis():
 def linear_baselines_analysis():
     cfgs = experiments.linear_baselines()
     params = [1, 2, 3, 5, 10, 20, 40]
-    sim_compare_param_analysis(
+    compare_param_analysis(
         cfgs,
         [1, 2, 3, 5, 10, 20, 40],
         ['per_channel', 'individual'],
@@ -520,7 +552,7 @@ def linear_baselines_analysis():
 def vqvae_decode_analysis():
     cfgs = experiments.vqvae_decode()
     params = [4, 8, 16]
-    sim_compare_param_analysis(
+    compare_param_analysis(
         cfgs,
         params,
         ['MLP', 'Transformer'],
@@ -538,7 +570,7 @@ plot_lists = {
 def pc_compare_models_analysis():
     cfgs = experiments.pc_compare_models()
     model_list = experiments.model_list
-    autoregressive_rnns_analysis(
+    compare_model_training_curves(
         cfgs, 'pc_compare_models',
         model_list=model_list, 
         plot_model_lists=plot_lists
@@ -547,7 +579,7 @@ def pc_compare_models_analysis():
 def compare_models_average_analysis():
     cfgs = experiments.compare_models_average()
     model_list = experiments.model_list
-    autoregressive_rnns_analysis(
+    compare_model_training_curves(
         cfgs, 'compare_models_average', 
         model_list=model_list, 
         plot_model_lists=plot_lists
@@ -556,7 +588,7 @@ def compare_models_average_analysis():
 def compare_models_individual_region_analysis():
     cfgs = experiments.compare_models_individual_region()
     model_list = experiments.model_list
-    autoregressive_rnns_analysis(
+    compare_model_training_curves(
         cfgs, 'compare_models_individual_region', 
         model_list=model_list, 
         mode_list=['l_LHb', 'l_MHb', 'l_dthal', 'l_gc', 'l_raphe', 'l_vent', 'l_vthal', ],
@@ -567,7 +599,7 @@ def compare_models_individual_region_analysis():
 def sim_compare_models_analysis():
     cfgs = experiments.sim_compare_models()
     model_list = experiments.model_list
-    autoregressive_rnns_analysis(
+    compare_model_training_curves(
         cfgs, 'sim_compare_models', 
         model_list=model_list, 
         mode_list=[256, 512, ],
@@ -580,14 +612,14 @@ def sim_compare_models_train_length_analysis():
     train_length = []
     param_list = np.log2([512, 2048, 8192, 65536, ])
 
-    sim_compare_param_analysis(
+    compare_param_analysis(
         cfgs, param_list, model_list=model_list, param_name='log(Training Length)', 
         save_dir='sim_compare_models',
         plot_model_list=['TOTEM_MLP', 'Latent_CTRNN', 'AR_S4', 'Linear', 'TCN']
     )
 
     cfgs = configs_transpose(cfgs, (len(model_list), len(param_list)))
-    autoregressive_rnns_analysis(
+    compare_model_training_curves(
         cfgs, 'sim_compare_models_train_length', 
         model_list=model_list, 
         mode_list=[512, 2048, 8192, 65536, ],

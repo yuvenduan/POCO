@@ -34,6 +34,9 @@ def model_test(
     train_loss: float = 0,
     phase: str = 'val'
 ):
+    """
+    Test the model. Print the test loss and accuracy through logger. Save the model if it is the best model.
+    """
 
     extra_out = []
     net.eval()
@@ -106,6 +109,11 @@ def model_test(
         )
 
 def model_train(config: SupervisedLearningBaseConfig):
+    """
+    The main training function. 
+    This function initializes the task, dataset, network, optimizer, and learning rate scheduler.
+    It then trains the network and logs the performance.
+    """
 
     np.random.seed(NP_SEED + config.seed)
     torch.manual_seed(TCH_SEED + config.seed)
@@ -227,7 +235,7 @@ def model_train(config: SupervisedLearningBaseConfig):
     if config.perform_test:
         np.random.seed(NP_SEED)
         torch.manual_seed(TCH_SEED)
-        random.seed(0)
+        random.seed(config.seed)
 
         test_data = DatasetIters(config, 'test')
         logger = Logger(output_dir=config.save_path, output_fname='test.txt', exp_name=config.experiment_name)

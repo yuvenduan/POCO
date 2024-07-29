@@ -12,35 +12,23 @@ from copy import deepcopy
 
 import os.path as osp
 
-def adjust_batch_size(configs):
-    for seed, config_list in configs.items():
-        for config in config_list:
-            if config.shared_backbone == False:
-                config.batch_size *= 19
-    return configs
-
-def linear_rnn_test():
+def test():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'linear_rnn_test'
-
-    config.train_fish_ids = [0, 1, 2, 3, 4]
-    config.wdecay = 1e-6
-    config.perform_val = False
-    config.rnn_type = 'Linear'
-    config.target_mode = 'raw'
+    config.experiment_name = 'test'
+    config.loss_mode = 'autoregressive'
+    config.model_type = 'Autoregressive'
+    config.max_batch = 1000
 
     config_ranges = OrderedDict()
-    config_ranges['hidden_size'] = [8, 64, 512]
-    config_ranges['exp_types'] = [['control'], ['shocked'], ['reshocked']]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    config_ranges['rnn_type'] = ['S4', 'LSTM', ]
+    
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
     return configs
 
 def autoregressive_rnns():
     config = NeuralPredictionConfig()
     config.experiment_name = 'autoregressive_rnns'
     config.loss_mode = 'autoregressive'
-    config.sampling_rate = 1
 
     config_ranges = OrderedDict()
     config_ranges['target_mode'] = ['raw', ]
@@ -56,7 +44,6 @@ def autoregressive_rnns_average():
     config.experiment_name = 'autoregressive_rnns_average'
     config.loss_mode = 'autoregressive'
     config.brain_regions = 'average'
-    config.sampling_rate = 1
     config.pc_dim = None
 
     config_ranges = OrderedDict()
@@ -365,7 +352,6 @@ def seqvae_test():
     config_ranges['kl_loss_coef'] = [0.1, 0.3]
 
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    adjust_batch_size(configs)
     return configs
 
 def seqvae_sim_test():
@@ -384,7 +370,6 @@ def seqvae_sim_test():
     config_ranges['kl_loss_coef'] = [0.1, ]
 
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
-    adjust_batch_size(configs)
     return configs
 
 def linear_baselines():

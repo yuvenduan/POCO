@@ -19,6 +19,10 @@ class AutoregressiveModel(nn.Module):
     """
 
     def __init__(self, config: NeuralPredictionConfig, datum_size):
+        """
+        datum_size: list of integers. For multi-fish neural prediction, it is the number of observed 
+            channels of each fish. if pc_dim is not None (only predict the PCs), datum_size = [pc_dim] * num_fish
+        """
         super().__init__()
 
         self.in_proj = nn.ModuleList([nn.Linear(size, config.hidden_size) for size in datum_size])
@@ -74,9 +78,12 @@ class AutoregressiveModel(nn.Module):
     def forward(self, input, pred_step=1):
         """
         :param x: list of tensors, each of shape (L, B, D)
+        :param pred_step: number of steps to predict
+        :return: list of tensors, each of shape (L + pred_step - 1, B, D)
         """
         for step in range(pred_step):
             preds = self._forward(input)
+            # concatenate the prediction to the input, and use it as the input for the next step
             if self.target_mode == 'raw':
                 input = [torch.cat([x, pred[-1: ]], dim=0) for x, pred in zip(input, preds)]
             elif self.target_mode == 'derivative':

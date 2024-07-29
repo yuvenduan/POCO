@@ -83,8 +83,6 @@ def get_pretrained_model(model_path, config_path, datum_size=None, eval_mode=Tru
 def model_init(config_: BaseConfig, datum_size):
     if config_.model_type == 'Autoregressive':
         model = models.AutoregressiveModel(config_, datum_size=datum_size)
-    elif config_.model_type == 'MetaRNN':
-        model = models.MetaRNN(config_, datum_size=datum_size)
     elif config_.model_type == 'SeqVAE':
         model = models.MultiFishSeqVAE(config_, datum_size=datum_size)
     elif config_.model_type == 'Linear':
