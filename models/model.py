@@ -1,4 +1,4 @@
-__all__ = ['AutoregressiveModel', 'LatentModel', 'SeqVAE', 'Linear', 'MultiFishSeqVAE', 'Decoder']
+__all__ = ['AutoregressiveModel', 'LatentModel', 'SeqVAE', 'Linear', 'MultiFishSeqVAE', 'Decoder', 'MixedModel']
 
 import torch
 import torch.nn as nn
@@ -185,7 +185,25 @@ class LatentModel(nn.Module):
             z = torch.stack(z_list[1: ])
             z = torch.split(z, bsz, dim=1)
         else:
-            raise NotImplementedError
+            for idx in range(len(z)):
+                zz = z[idx]
+                if zz.shape[1] == 0:
+                    z[idx] = torch.zeros((zz.shape[0] + pred_step - 1, 0, zz.shape[2]), device=zz.device)
+                    continue
+                z_list = [zz[0]]
+                for step in range(zz.shape[0] - 1):
+                    if step % self.train_tf_interval == 0:
+                        last_z = zz[step]
+                    new_z = self.rnns[idx](hidden_in=last_z)
+                    last_z = new_z
+                    z_list.append(last_z)
+                last_z = zz[-1]
+                for step in range(pred_step):
+                    new_z = self.rnns[idx](hidden_in=last_z)
+                    last_z = new_z
+                    z_list.append(last_z)
+                z_list = z_list[1: ]
+                z[idx] = torch.stack(z_list)
 
         x = self.proj.latent_to_obs(z)
         return x
@@ -273,13 +291,28 @@ class MultiFishSeqVAE(nn.Module):
 
 class BatchedLinear(nn.Module):
 
-    def __init__(self, n_channels, in_size, out_size, bias=False):
+    def __init__(self, n_channels, in_size, out_size, bias=False, init='one_hot'):
         # weight: n * out_size * in_size
         # input: batch * n * in_size -> n * in_size * batch
         # out: n * out_size * batch -> batch * n * out_size
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(n_channels, out_size, in_size))
-        self.weight.data[:, :, -1] = 1
+        if init == 'one_hot':
+            nn.init.zeros_(self.weight)
+            self.weight.data[:, :, -1] = 1
+        elif init == 'fan_in':
+            bound = 1 / math.sqrt(in_size)
+            nn.init.uniform_(self.weight, -bound, bound)
+            self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
+        elif init == 'fan_out':
+            bound = 1 / math.sqrt(out_size)
+            nn.init.uniform_(self.weight, -bound, bound)
+            self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
+        elif init == 'zero':
+            nn.init.zeros_(self.weight)
+        else:
+            raise ValueError(f"Unknown init {init}")
+
         if bias:
             self.bias = nn.Parameter(torch.zeros(n_channels, out_size))
 
@@ -343,13 +376,25 @@ class Decoder(nn.Module):
 
     def __init__(self, config: NeuralPredictionConfig, datum_size):
         super().__init__()
-        model_path = os.path.join(config.encoder_dir, config.encoder_state_dict_file)
-        
-        self.encoder = get_pretrained_model(model_path, config.encoder_dir, datum_size)
+
         self.Tin = config.seq_length - config.pred_length
-        self.TC = self.Tin // self.encoder.compression_factor
-        self.embed_dim = self.encoder.embedding_dim
+        if config.encoder_dir is not None:
+            model_path = os.path.join(config.encoder_dir, config.encoder_state_dict_file)
+            self.encoder = get_pretrained_model(model_path, config.encoder_dir, datum_size)
+            self.TC = self.Tin // self.encoder.compression_factor
+            self.embed_dim = self.encoder.embedding_dim
+        else:
+            self.encoder = None
+            self.TC = self.Tin // config.compression_factor
+            self.embed_dim = config.compression_factor
+        
         self.datum_size = datum_size
+        if config.mu_std_loss_coef is None:
+            self.mu_std_loss_coef = 0
+            self.normalize_seq = False
+        else:
+            self.mu_std_loss_coef = config.mu_std_loss_coef
+            self.normalize_seq = True
 
         if config.decoder_type == 'Linear':
             self.decoder = nn.Flatten(1, 2)
@@ -363,32 +408,84 @@ class Decoder(nn.Module):
         else:
             raise NotImplementedError
         
-        self.proj = nn.Linear(self.embedding_dim, config.pred_length)
-        self.mustd = MuStdModel(self.Tin, config.pred_length, [self.embed_dim])
+        self.separate_projs = config.separate_projs
+        if not self.separate_projs:
+            self.proj = nn.Linear(self.embedding_dim, config.pred_length)
+        else:
+            self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, config.pred_length, init=config.decoder_proj_init) for size in datum_size])
+        self.mustd = MuStdModel(self.Tin, config.pred_length, [64])
         
     def forward(self, x, pred_step=1):
         """
         x: list of tensors, each of shape (L, B, D)
+        return: list of tensors, each of shape (pred_length, B, D)
         """
         bsz = [xx.size(1) for xx in x]
         L = x[0].size(0)
         x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
 
-        with torch.no_grad():
-            out, x_mean, x_std = self.encoder.encode(x) # out: sum(B * D), TC, E; x_mean, x_std: sum(B * D), 1
-        print(out.shape)
-        embed = self.decoder(out)
-        pred = self.proj(embed)
-
         mu, std = self.mustd(x).chunk(2, dim=1)
-        mu = mu + x_mean
-        std = std + x_std
-        pred = pred * std + mu # sum(B * D), Tout
+        if self.normalize_seq:
+            x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
+            x = (x - x_mean) / (x_std + 1e-6)
 
-        self.mu = mu
-        self.std = std
+        if self.encoder is not None:
+            with torch.no_grad():
+                out = self.encoder.encode(x) # out: sum(B * D), TC, E
+        else:
+            out = x.reshape(x.shape[0], self.TC, self.embed_dim) # out: sum(B * D), TC, E
 
+        embed = self.decoder(out) # sum(B * D), embed
+        if self.normalize_seq:
+            mu = x_mean + mu
+            std = x_std + std
+        self.mu = mu.clone().squeeze(-1)
+        self.std = std.clone().squeeze(-1)
+
+        # partition embed, mu, std to a list of tensors, each of shape (B, D, embed), (B, D, 1), (B, D, 1)
         split_size = [b * d for b, d in zip(bsz, self.datum_size)]
-        pred = torch.split(pred.transpose(0, 1), split_size, dim=1) # [T, B * D]
-        pred = [xx.reshape(xx.shape[0], b, d) for xx, b, d in zip(pred, bsz, self.datum_size)]
-        return pred
+        embed = torch.split(embed, split_size, dim=0) # [B * D, embed]
+        embed = [xx.reshape(b, d, self.embedding_dim) for xx, b, d in zip(embed, bsz, self.datum_size)]
+
+        mu = torch.split(mu, split_size, dim=0) # [B * D, 1]
+        mu = [xx.reshape(b, d) for xx, b, d in zip(mu, bsz, self.datum_size)]
+        std = torch.split(std, split_size, dim=0) # [B * D, 1]
+        std = [xx.reshape(b, d) for xx, b, d in zip(std, bsz, self.datum_size)]
+
+        preds = []
+        for i, (e, m, s) in enumerate(zip(embed, mu, std)):
+            if self.separate_projs:
+                proj = self.proj[i]
+            else:
+                proj = self.proj
+            pred: torch.Tensor = proj(e) # B, D, pred_length
+            # pred = (pred - pred.mean(dim=-1, keepdims=True)) / pred.std(dim=-1, keepdims=True) # normalized
+            if self.normalize_seq:
+                pred = pred * s.unsqueeze(-1) + m.unsqueeze(-1)
+            preds.append(pred.permute(2, 0, 1))
+
+        return preds
+
+class MixedModel(nn.Module):
+
+    def __init__(self, config: NeuralPredictionConfig, datum_size):
+        super().__init__()
+
+        self.latent_model = LatentModel(config, datum_size)
+
+        config.shared_backbone = False
+        config.per_channel = True
+        self.linear_model = Linear(config, datum_size)
+
+    def forward(self, x, pred_step=1):
+        """
+        :param x: list of tensors, each of shape (L, B, D)
+        """
+        linear_out = self.linear_model(x, pred_step=pred_step)
+        latent_out = self.latent_model(x, pred_step=pred_step)
+        for i in range(len(linear_out)):
+            # pad linear_out to the same length as latent_out
+            padding = torch.zeros((latent_out[i].shape[0] - linear_out[i].shape[0], linear_out[i].shape[1], linear_out[i].shape[2]), device=linear_out[i].device)
+            padded_linear_out = torch.cat([linear_out[i], padding], dim=0)
+            x[i] = padded_linear_out + latent_out[i]
+        return x

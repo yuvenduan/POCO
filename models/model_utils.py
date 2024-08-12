@@ -18,7 +18,8 @@ def get_rnn_from_config(config: SupervisedLearningBaseConfig, **kwargs):
         hidden_size=kwargs.get('hidden_size', config.hidden_size),
         alpha=config.rnn_alpha,
         rank=config.rnn_rank,
-        num_layers=config.num_layers
+        num_layers=config.num_layers,
+        residual=kwargs.get('residual', config.rnn_residual_connection),
     )
     return rnn
 
@@ -35,7 +36,7 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
     elif rnn_type == 'GRU':
         rnn = nn.GRU(rnn_in_size, hidden_size, num_layers=num_layers, **kwargs)
     elif rnn_type == 'CTRNNCell':
-        rnn = CTRNNCell(input_size=rnn_in_size, hidden_size=hidden_size, **kwargs)
+        rnn = CTRNNCell(input_size=rnn_in_size, hidden_size=hidden_size, alpha=alpha, **kwargs)
         assert kwargs.get('num_layers', 1) == 1
     elif rnn_type == 'PLRNN':
         assert rnn_in_size == None
@@ -43,7 +44,7 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
     elif rnn_type == 'CTRNN':
         rnn = CTRNN(rnn_in_size, hidden_size, alpha=alpha, num_layers=num_layers, **kwargs)
     elif rnn_type == 'LRRNN':
-        rnn = CTRNNCell(rnn_in_size, hidden_size, alpha=alpha, rank=rank)
+        rnn = CTRNNCell(rnn_in_size, hidden_size, alpha=alpha, rank=rank, residual=kwargs.get('residual', True))
     elif rnn_type == 'BiGRU':
         rnn = nn.GRU(rnn_in_size, hidden_size, bidirectional=True, num_layers=num_layers, **kwargs)
     elif rnn_type == 'Transformer':
@@ -95,6 +96,8 @@ def model_init(config_: BaseConfig, datum_size):
         model = models.vqvae(config_, datum_size=datum_size)
     elif config_.model_type == 'Decoder':
         model = models.Decoder(config_, datum_size=datum_size)
+    elif config_.model_type == 'Mixed':
+        model = models.MixedModel(config_, datum_size=datum_size)
     else:
         raise NotImplementedError("Model not Implemented")
 

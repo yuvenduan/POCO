@@ -374,7 +374,7 @@ def seqvae_sim_test():
 
 def linear_baselines():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'linear_baselines'
+    config.experiment_name = 'linear_baselines_test'
 
     config.wdecay = 1e-6
     config.lr = 1e-3
@@ -383,8 +383,8 @@ def linear_baselines():
 
     config_ranges = OrderedDict()
     config_ranges['normalize_mode'] = ['none', ]
-    config_ranges['per_channel'] = [False, True, ]
-    config_ranges['linear_input_length'] = [1, 2, 3, 5, 10, 20, 40]
+    config_ranges['per_channel'] = [True, ]
+    config_ranges['linear_input_length'] = [48, ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
 
     for seed, config_list in configs.items():
@@ -410,47 +410,49 @@ def low_rank_rnn():
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
     return configs
 
+def vqvae_pretrain(config: NeuralPredictionConfig, config_ranges, seeds=2):
+    config.model_type = 'VQVAE'
+    config.loss_mode = 'reconstruction'
+    config.seq_length = 48
+    config.pred_length = 0
+    config.save_every = config.max_batch
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=seeds)
+    return configs
+
 def vqvae():
     config = NeuralPredictionConfig()
     config.experiment_name = 'vqvae'
-    config.model_type = 'VQVAE'
-    config.pred_length = 0
-    config.loss_mode = 'reconstruction'
-    config.seq_length = 48
-    config.save_every = config.max_batch
 
     config_ranges = OrderedDict()
     config_ranges['compression_factor'] = [4, 8, 16, ]
+    return vqvae_pretrain(config, config_ranges)
 
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    return configs
+def vqvae_visual():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'vqvae_visual'
+    config.dataset = 'zebrafish_visual'
+    config.use_stimuli = False
+    config.use_eye_movements = False
+
+    config_ranges = OrderedDict()
+    config_ranges['compression_factor'] = [4, ]
+    return vqvae_pretrain(config, config_ranges)
 
 def vqvae_average():
     config = NeuralPredictionConfig()
     config.experiment_name = 'vqvae_average'
-    config.model_type = 'VQVAE'
-    config.pred_length = 0
-    config.loss_mode = 'reconstruction'
-    config.seq_length = 48
-    config.save_every = config.max_batch
     config.brain_regions = 'average'
     config.pc_dim = None
     config.normalize_mode = 'zscore'
 
     config_ranges = OrderedDict()
     config_ranges['compression_factor'] = [4, ]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    return configs
+    return vqvae_pretrain(config, config_ranges)
 
 def vqvae_sim():
     config = NeuralPredictionConfig()
     config.experiment_name = 'vqvae_sim'
-    config.model_type = 'VQVAE'
-    config.pred_length = 0
-    config.loss_mode = 'reconstruction'
-    config.seq_length = 48
-    config.save_every = config.max_batch
     config.dataset = 'simulation'
     config.pc_dim = None
     config.sampling_rate = 5
@@ -460,27 +462,44 @@ def vqvae_sim():
     config_ranges['n_neurons'] = [512, 1536, ]
     config_ranges['train_data_length'] = [2048, 8192, ]
     config_ranges['compression_factor'] = [4, ]
+    return vqvae_pretrain(config, config_ranges)
 
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    return configs
-
-def vqvae_decode():
+def vqvae_decode_compare_init():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'vqvae_decode'
+    config.experiment_name = 'vqvae_decode_compare_init'
     config.model_type = 'Decoder'
     config.encoder_state_dict_file = 'net_5000.pth'
     config.loss_mode = 'prediction'
+    config.separate_projs = True
+    config.max_batch = 20000
 
     config_ranges = OrderedDict()
-    config_ranges['decoder_type'] = ['Transformer', 'MLP', ]
-    config_ranges['compression_factor'] = [4, 8, 16, ]
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    config_ranges['mu_std_loss_coef'] = [None, 0, 1, ]
+    config_ranges['decoder_type'] = ['Transformer', 'MLP', 'Linear', ]
+    config_ranges['decoder_proj_init'] = ['fan_in', 'zero', 'one_hot', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2, )
 
     for seed, config_list in configs.items():
         for config in config_list:
             config: NeuralPredictionConfig
             config.encoder_dir = f'experiments/vqvae/model_compression_factor{config.compression_factor}_s{seed}'
 
+    return configs
+
+def direct_decode():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'direct_decode'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.separate_projs = True
+    config.max_batch = 20000
+
+    config_ranges = OrderedDict()
+    config_ranges['mu_std_loss_coef'] = [None, 0, 1, ]
+    config_ranges['decoder_type'] = ['Transformer', 'Linear', ]
+    config_ranges['decoder_proj_init'] = ['fan_in', 'zero', 'one_hot', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2, )
     return configs
 
 def configure_models(configs: dict):
@@ -500,6 +519,9 @@ def configure_models(configs: dict):
                 elif config.dataset == 'zebrafish':
                     config.encoder_dir = \
                         f'experiments/vqvae/model_compression_factor{config.compression_factor}_s{seed}'
+                elif config.dataset == 'zebrafish_visual':
+                    config.encoder_dir = \
+                        f'experiments/vqvae_visual/model_compression_factor{config.compression_factor}_s{seed}'
                 elif config.dataset == 'simulation':
                     if config.train_data_length > 327680 // config.sampling_rate:
                         config.train_data_length = 327680 // config.sampling_rate
@@ -538,6 +560,26 @@ def configure_models(configs: dict):
 
     return configs  
 
+def mixed_model_test():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'mixed_model_test_pred_loss'
+    config.model_type = 'Mixed'
+    config.per_channel = True
+    config.loss_mode = 'prediction'
+    config.linear_input_length = 24
+    config.rnn_residual_connection = False
+    config.latent_to_ob = 'identity'
+    config.max_batch = 40000
+    config.wdecay = 1e-6
+
+    config_ranges = OrderedDict()
+    config_ranges['rnn_type'] = ['LRRNN', ]
+    config_ranges['latent_to_ob'] = ['identity', 'linear', ]
+    config_ranges['shared_backbone'] = [True, False, ]
+    config_ranges['rnn_rank'] = [None, 4, 16, ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
+    return configs
+
 model_list = [
     'TOTEM_Transformer', 'TOTEM_MLP', 
     'AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM',
@@ -549,6 +591,19 @@ def pc_compare_models():
     config = NeuralPredictionConfig()
     config.experiment_name = 'pc_compare_models'
     config.dataset = 'zebrafish'
+
+    config_ranges = OrderedDict()
+    config_ranges['model_label'] = model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    return configs
+
+def pc_compare_models_visual():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'pc_compare_models_visual'
+    config.dataset = 'zebrafish_visual'
+    config.use_stimuli = False
+    config.use_eye_movements = False
 
     config_ranges = OrderedDict()
     config_ranges['model_label'] = model_list

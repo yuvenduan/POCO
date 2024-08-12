@@ -94,9 +94,10 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # rnn config
         self.hidden_size = 512
-        self.rnn_alpha = 0.1 # only for LRRNN, CTRNN, PLRNN
+        self.rnn_alpha = 0.05 # only for LRRNN, CTRNN, PLRNN
         self.rnn_rank = 4 # only for Low-Rank RNN (LRRNN)
         self.learnable_alpha = False
+        self.rnn_residual_connection = True # only for Low-Rank RNN (LRRNN)
 
         # meta-rnn model config
         self.inner_wd = 0
@@ -151,7 +152,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.vqvae_embedding_dim = 64
         self.num_embeddings = 256
         self.commitment_cost = 0.25
-        self.compression_factor = 4
+        self.compression_factor = 16
         self.num_residual_layers = 2
         self.res_hidden_size = 64
 
@@ -166,6 +167,9 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.encoder_state_dict_file = f'net_{self.max_batch}.pth'
         self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
         self.decoder_hidden_size = 256
+        self.separate_projs = False
+        self.decoder_proj_init = 'fan_in'
+        self.mu_std_loss_coef = 0 # if None, do not normalize; otherwise normalize the input, the predicted mean and std
 
         self.do_analysis = False
 
@@ -221,4 +225,3 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.test_batch = 10000 # test on all available data 
         self.mem = 32
         self.do_analysis = False
-

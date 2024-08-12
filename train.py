@@ -134,15 +134,15 @@ def model_train(config: SupervisedLearningBaseConfig):
     if config.grad_clip is not None:
         logging.info("Performs grad clipping with max norm " + str(config.grad_clip))
 
-    # initialize task
-    task_func: TaskFunction = task_init(config)
-
     # initialize dataset
     train_data = DatasetIters(config, 'train')
     if config.perform_val:
         test_data = DatasetIters(config, 'val')
     else:
         test_data = None
+
+    # initialize task
+    task_func: TaskFunction = task_init(config, train_data.datum_sizes[0])
 
     # initialize network
     net = model_init(config, train_data.datum_sizes[0])
@@ -215,7 +215,7 @@ def model_train(config: SupervisedLearningBaseConfig):
                 logger.log_tabular('DataNum', (i_b + 1) * config.batch_size * train_data.num_datasets)
                 logger.log_tabular('TrainLoss', train_loss / config.log_every)
 
-                model_test(net, config, test_data, task_func, logger, testloss_list, i_b, train_loss / config.log_every)
+                model_test(net, config, test_data, task_func, logger, testloss_list, i_b + 1, train_loss / config.log_every)
                 i_log += 1
                 logger.dump_tabular()
                 train_loss = 0

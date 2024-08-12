@@ -82,7 +82,7 @@ def error_plot(
     A generic error bar plot
     :param x_axis: A list representing the x-axis, or a list of lists representing x-axis for each curve
     :param data_list: A list of curves to plot,
-        of size (num_curves, num_points, num_seed)
+        of size (num_curves, num_points, num_seeds)
         Each curve is a list of the same length as x_axis,
         where each element in the list is a list of integers
         containing results of different random seeds
@@ -288,16 +288,21 @@ def grouped_plot(
 ):
     """
     A grouped (bar) plot
+
     :param data_list: a list containing data for each atrribute, of size (num_bars, num_groups, (optional) num_seed)
     :param group_labels: labels for each group, would be shown on x-axis
     :param bar_labels: labels for each bar, would be shown on legend
     :param bar_width: width of each bar, default is 1 / (num_bars + 1)
-    :param style: 'errorbar' or 'bar'
+    :param style: 'errorbar' or 'bar' or 'violin'
     """
 
     plt.figure(figsize=fig_size)
+
     if bar_width is None:
         bar_width = 1 / (len(data_list) + 1)
+
+    if bar_labels is None:
+        bar_labels = [None for data in data_list]
     
     for i, (attr, data) in enumerate(zip(bar_labels, data_list)):
         offset = (i - len(data_list) / 2 + 0.5) * bar_width

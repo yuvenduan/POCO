@@ -63,25 +63,36 @@ class NeuralPrediction(TaskFunction):
     Task function for autoregressive neural prediction
     """
 
-    def __init__(self, config: NeuralPredictionConfig):
+    def __init__(self, config: NeuralPredictionConfig, datum_size):
         self.criterion = nn.MSELoss(reduction='sum')
-        self.data = {'train': [], 'val': [], 'test': []}
-        self.curves = {'train': [], 'val': [], 'test': []}
-
         self.do_analysis = config.do_analysis
         self.loss_mode = config.loss_mode
         self.pred_step = config.pred_length
         self.target_mode = config.target_mode
         self.config = config
-
-        self.recon_loss_list = {'train': [], 'val': [], 'test': []}
-        self.vae_loss_list = {'train': [], 'val': [], 'test': []}
+        self.datum_size = datum_size
+        self._init_info()
 
         assert self.loss_mode in ['prediction', 'autoregressive', 'reconstruction', 'reconstruction_prediction']
         if self.loss_mode == 'reconstruction':
             assert self.pred_step == 0, 'reconstruction mode does not support prediction'
         else:
             assert self.pred_step > 0, 'prediction step should be larger than 0'
+
+    def _init_info(self):
+        self.sample_trials = {'train': [], 'val': [], 'test': []}
+        self.pred_num = {'train': [], 'val': [], 'test': []}
+        self.sum_mse = {'train': [], 'val': [], 'test': []}
+        self.sum_mae = {'train': [], 'val': [], 'test': []}
+        
+        for phase in ['train', 'val', 'test']:
+            for size in self.datum_size:
+                self.pred_num[phase].append(np.zeros(size))
+                self.sum_mse[phase].append(np.zeros((self.pred_step, size)))
+                self.sum_mae[phase].append(np.zeros((self.pred_step, size))) # L, D
+
+        self.recon_loss_list = {'train': [], 'val': [], 'test': []}
+        self.vae_loss_list = {'train': [], 'val': [], 'test': []}
 
     def roll(self, model: nn.Module, data_batch: tuple, phase: str = 'train'):
         train_flag = phase == 'train'
@@ -93,7 +104,10 @@ class NeuralPrediction(TaskFunction):
         task_loss = torch.zeros(1).to(DEVICE)
         pred_num = 0
 
-        for inp, out, tar, info in zip(input, output, target, info_list):
+        mean_list = []
+        std_list = []
+
+        for idx, (inp, out, tar, info) in enumerate(zip(input, output, target, info_list)):
             if target is None or np.prod(tar.shape) == 0:
                 continue
 
@@ -105,16 +119,27 @@ class NeuralPrediction(TaskFunction):
             else:
                 assert self.loss_mode == 'autoregressive'
 
-            loss_array = F.mse_loss(out, tar, reduction='none') # shape: L, B, D
-            self.data[phase].append((
-                out.detach().cpu().numpy(),
-                tar.detach().cpu().numpy(),
-                loss_array.detach().cpu().numpy(),
-                inp.detach().cpu().numpy()
-            ))
+            if len(self.sample_trials[phase]) < len(input):
+                self.sample_trials[phase].append((
+                    out.detach().cpu().numpy(), 
+                    tar.detach().cpu().numpy(), 
+                    inp.detach().cpu().numpy()
+                ))
+            
+            with torch.no_grad():
+                loss_array = torch.abs(out - tar)[-self.pred_step: ] # shape: L, B, D
+                assert loss_array.shape[0] == self.pred_step
 
-            task_loss += self.criterion(out, tar) # shape: L, B, D
+                self.sum_mse[phase][idx] += loss_array.pow(2).sum(dim=1).cpu().numpy()
+                self.sum_mae[phase][idx] += loss_array.sum(dim=1).cpu().numpy()
+                self.pred_num[phase][idx] += loss_array.shape[1]
+
+            task_loss += self.criterion(out, tar) 
             pred_num += np.prod(tar.shape)
+
+            tar = tar[-self.pred_step: ]
+            mean_list.append(torch.mean(tar, dim=0).reshape(-1))
+            std_list.append(torch.std(tar, dim=0).reshape(-1))
 
         task_loss = task_loss / max(1, pred_num)
 
@@ -126,8 +151,14 @@ class NeuralPrediction(TaskFunction):
             self.recon_loss_list[phase].append(task_loss.item())
             task_loss += model.vq_loss
             self.vae_loss_list[phase].append(model.vq_loss.item())
-        # elif isinstance(model, Decoder):
-        #    task_loss += F.mse_loss(model.mu,)
+        elif isinstance(model, Decoder):
+            # here recon loss / vae loss denotes mean and std prediction loss
+            assert self.loss_mode == 'prediction'
+            mean_loss = F.mse_loss(model.mu, torch.cat(mean_list))
+            std_loss = F.mse_loss(model.std, torch.cat(std_list))
+            task_loss += (mean_loss + std_loss) * model.mu_std_loss_coef
+            self.recon_loss_list[phase].append(mean_loss.item())
+            self.vae_loss_list[phase].append(std_loss.item())
 
         if train_flag:
             return task_loss
@@ -135,104 +166,81 @@ class NeuralPrediction(TaskFunction):
             return task_loss, pred_num, task_loss.item() * pred_num
         
     def after_testing_callback(self, save_path: str, batch_num: int, logger: Logger, is_best: bool, **unused):
+
         # compute mean loss for the prediction part
         for phase in ['train', 'val']:
+
+            if self.pred_num[phase] == 0:
+                continue
 
             if len(self.recon_loss_list[phase]) > 0:
                 mean_recon_loss = np.mean(self.recon_loss_list[phase])
                 logger.log_tabular(f'{phase}_recon_loss', mean_recon_loss)
-                self.recon_loss_list[phase] = []
             if len(self.vae_loss_list[phase]) > 0:
                 mean_vae_loss = np.mean(self.vae_loss_list[phase])
                 logger.log_tabular(f'{phase}_vae_loss', mean_vae_loss)
-                self.vae_loss_list[phase] = []
 
-            pred_num = 0
-            sum_loss = 0
-            for data in self.data[phase]:
-                end_loss = data[2][-self.pred_step: ]
-                sum_loss += end_loss.sum()
-                pred_num += np.prod(end_loss.shape)
-            mean_loss = sum_loss / pred_num
-            logger.log_tabular(f'{phase}_end_loss', mean_loss.item())
+            sum_pred_num = 0
+            sum_mse = 0
+            sum_mae = 0
+            for idx in range(len(self.datum_size)):
+                sum_pred_num += self.pred_num[phase][idx].sum() * self.pred_step
+                sum_mse += self.sum_mse[phase][idx].sum()
+                sum_mae += self.sum_mae[phase][idx].sum()
 
-            # visualize prediction of the first/last pc for 10 random trials
-            for pc in [0, -1]:
-                preds = []
-                targets = []
-                for iter in range(10):
-                    batch_idx = np.random.randint(len(self.data[phase]))
-                    data = self.data[phase][batch_idx]
-                    sample_idx = np.random.randint(data[0].shape[1])
+            logger.log_tabular(f'{phase}_mse', sum_mse / sum_pred_num)
+            logger.log_tabular(f'{phase}_mae', sum_mae / sum_pred_num)
+            
+            if is_best:
 
-                    if self.target_mode == 'raw':
+                # visualize prediction of the first/last dimension for 10 random trials
+                for pc in [0, 20, 50, -1]:
+                    preds = []
+                    targets = []
+
+                    for iter in range(10):
+                        batch_idx = np.random.randint(len(self.sample_trials[phase]))
+                        data = self.sample_trials[phase][batch_idx]
+                        sample_idx = np.random.randint(data[0].shape[1])
+
                         pred = data[0][:, sample_idx, pc]
                         target = data[1][:, sample_idx, pc]
-                        if self.loss_mode == 'prediction':
-                            inp = data[3][:, sample_idx, pc]
-                            pred = np.concatenate([inp, pred])
-                            target = np.concatenate([inp, target])
-                        preds.append(pred)
-                        targets.append(target)
-                    else:
-                        assert self.loss_mode != 'prediction', 'Not implemented'
-                        inp = data[3][:, sample_idx, pc]
-                        raw_target = inp[-1] + np.cumsum(data[1][-self.pred_step:, sample_idx, pc])
-                        targets.append(np.concatenate([inp[1: ], raw_target]))
-                        pred = inp[-1] + np.cumsum(data[0][-self.pred_step:, sample_idx, pc])
-                        preds.append(np.concatenate([inp[: -1] + data[0][: -self.pred_step, sample_idx, pc], pred]))
+                        inp = data[2][:, sample_idx, pc]
 
-                plots.pred_vs_target_plot(
-                    list(zip(preds, targets)), 
-                    os.path.join(save_path, f'{phase}_pred_vs_target'), 
-                    f'{batch_num}_dim{pc}',
-                    len(preds[0]) - self.pred_step
-                )
+                        if self.target_mode == 'raw':
+                            if self.loss_mode == 'prediction': # get the whole trial
+                                pred = np.concatenate([inp, pred])
+                                target = np.concatenate([inp, target])
+                            preds.append(pred)
+                            targets.append(target)
+                        else:
+                            assert self.loss_mode != 'prediction', 'Not implemented'
+                            raw_target = inp[-1] + np.cumsum(data[1][-self.pred_step:, sample_idx, pc])
+                            targets.append(np.concatenate([inp[1: ], raw_target]))
+                            pred = inp[-1] + np.cumsum(data[0][-self.pred_step:, sample_idx, pc])
+                            preds.append(np.concatenate([inp[: -1] + data[0][: -self.pred_step, sample_idx, pc], pred]))
 
-        if self.do_analysis:
-            for phase in ['train', 'val']:
-                self.curves[phase].append(self.error_dist_plot(self.data[phase], os.path.join(save_path, f'{phase}_error_dist'), batch_num))
+                    plots.pred_vs_target_plot(
+                        list(zip(preds, targets)), 
+                        os.path.join(save_path, f'{phase}_pred_vs_target'), 
+                        f'best_dim{pc}',
+                        len(preds[0]) - self.pred_step
+                    )
 
-        self.data = {'train': [], 'val': [], 'test': []}
+
+        if is_best:
+            for phase in ['val']:
+                info = {
+                    'mse': self.sum_mse[phase],
+                    'mae': self.sum_mae[phase],
+                    'pred_num': self.pred_num[phase],
+                    'sample_trials': self.sample_trials[phase]
+                }
+                np.save(os.path.join(save_path, f'{phase}_best_info.npy'), info)
+
+        self._init_info()
     
     def after_training_callback(self, config, model):
+        
         if not self.do_analysis:
             return
-        # compare curve for the first and last epoch
-        for phase in ['train', 'val']:
-            plots.error_plot(
-                np.arange(-5, 5, 0.1),
-                [self.curves[phase][0], self.curves[phase][-1]], # [[curve1], [curve2]]
-                'Delta F', 'Loss',
-                label_list=['Initial', 'Final'],
-                fig_name=phase,
-                save_dir=config.save_path,
-                mode='errorshade'
-            )
-
-    def error_dist_plot(self, data, save_path, batch_num):
-        if len(data) == 0:
-            return
-
-        target = np.concatenate([d[1].reshape(-1) for d in data])
-        error = np.concatenate([d[2].reshape(-1) for d in data])
-
-        import matplotlib.pyplot as plt
-        left = -5
-        right = 5
-        interval = 0.1
-
-        curve = []
-        for x in np.arange(left, right, interval).tolist():
-            mask = (target >= x) & (target < x + interval)
-            curve.append([(error * mask).sum()])
-        x_axis = np.arange(left, right, interval)
-
-        plots.error_plot(
-            x_axis, [curve], 'Delta F', 'Loss',
-            fig_name=f'{batch_num}',
-            save_dir=save_path,
-            mode='errorshade'
-        )
-
-        return curve

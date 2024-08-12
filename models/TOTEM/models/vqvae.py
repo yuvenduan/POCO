@@ -471,10 +471,7 @@ class vqvae(nn.Module):
         """
 
         # run vqvae
-        # added normalization
-        x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True)
-        x = (x - x_mean) / (x_std + 1e-6)
         z = self.encoder(x, self.compression_factor)
         vq_loss, quantized, perplexity, embedding_weight, encoding_indices, encodings = self.vq(z)
 
-        return quantized.transpose(1, 2), x_mean, x_std
+        return quantized.transpose(1, 2)

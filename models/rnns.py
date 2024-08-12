@@ -18,7 +18,8 @@ class CTRNNCell(nn.Module):
             mul_rnn_noise=0,
             add_rnn_noise=0,
             learnable_alpha=False,
-            rank=None
+            rank=None,
+            residual=True
         ):
 
         super(CTRNNCell, self).__init__()
@@ -34,6 +35,7 @@ class CTRNNCell(nn.Module):
 
         self.weight_ih = nn.Parameter(torch.zeros((input_size, hidden_size))) if input_size != None else None
         self.rank = rank
+        self.residual = residual
         if rank is None:    
             self.weight_hh = nn.Parameter(torch.zeros((hidden_size, hidden_size)))
         else:
@@ -64,10 +66,11 @@ class CTRNNCell(nn.Module):
             weight_hh = self.weight_hh
         else:
             weight_hh = (self.weight_hh_n @ self.weight_hh_m) * np.sqrt(self.hidden_size / self.rank)
-            identity = torch.eye(self.hidden_size, device=DEVICE)
-            normalized_hh_n = self.weight_hh_n / torch.linalg.norm(self.weight_hh_n, dim=0, ord=2)
-            residual = identity - normalized_hh_n @ normalized_hh_n.T
-            weight_hh = weight_hh + residual
+            if self.residual:
+                identity = torch.eye(self.hidden_size, device=DEVICE)
+                normalized_hh_n = self.weight_hh_n / torch.linalg.norm(self.weight_hh_n, dim=0, ord=2)
+                residual = identity - normalized_hh_n @ normalized_hh_n.T
+                weight_hh = weight_hh + residual
 
         bias = self.bias
         alpha = self.alpha

@@ -8,7 +8,8 @@ from configs.config_global import ROOT_DIR, LOG_LEVEL, FIG_DIR
 from utils.config_utils import configs_dict_unpack, configs_transpose
 from analysis import plots
 from configs import experiments
-from datasets.zebrafish import get_baseline_performance, Zebrafish
+from configs.configs import NeuralPredictionConfig
+from datasets.zebrafish import get_baseline_performance, Zebrafish, Simulation, VisualZebrafish
 
 def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=None, start=0):
 
@@ -136,14 +137,14 @@ def compare_model_training_curves(
     performance = []
 
     for i, mode in enumerate(mode_list):
-        val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list)], 'val')
+        val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list)], 'val')[0][0]
         performance = []
         train_performance = []
 
         for k, model in enumerate(model_list):
-            test_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key='val_end_loss')
+            test_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key='val_mse')
             performance.append(test_curve)
-            train_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key='TrainLoss')
+            train_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key='train_mse')
             train_performance.append(train_curve)
 
             def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
@@ -257,7 +258,7 @@ def sim_compare_n_neurons_analysis():
 
     for i, n in enumerate(n_regions):
         for j, m in enumerate(n_neurons):
-            val_baseline_performance = get_baseline_performance(cfgs[0][(i * len(n_neurons) + j) * len(models)], 'val')
+            val_baseline_performance = get_baseline_performance(cfgs[0][(i * len(n_neurons) + j) * len(models)], 'val')[0][0]
             def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
                 plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
@@ -313,7 +314,7 @@ def sim_compare_pca_dim_analysis():
                     train_curve, x_axis = get_curve(cfgs, idx, key='train_end_loss')
                     curves.append(test_curve)
 
-                val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list) * len(pc_dims) + k], 'val')
+                val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list) * len(pc_dims) + k], 'val')[0][0]
                 def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
                     plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
             except:
@@ -357,7 +358,7 @@ def compare_param_analysis(
 
         curves.append(performances)
 
-    val_baseline_performance = [get_baseline_performance(cfgs[0][j], 'val') for j in range(len(param_list))]
+    val_baseline_performance = [get_baseline_performance(cfgs[0][j], 'val') for j in range(len(param_list))[0][0]]
     def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
         plt.plot(param_list, val_baseline_performance, color='gray', linestyle='--', linewidth=linewidth)
 
@@ -408,7 +409,7 @@ def sim_compare_train_length_analysis():
     model_list = ['Transformer', 'RNN', 'S4']
     mean_performance = {key: [] for key in model_list}
     baseline_performances = [
-        get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'val') 
+        get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'val')[0][0] 
             for i in range(len(n_neurons))]
     
     for i, n in enumerate(n_neurons):
@@ -496,7 +497,7 @@ def seqvae_analysis():
     train_curve_list = []
     val_curve_list = []
 
-    val_baseline_performance = get_baseline_performance(cfgs[0][0], 'val')
+    val_baseline_performance = get_baseline_performance(cfgs[0][0], 'val')[0][0]
     def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
         plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
@@ -540,14 +541,21 @@ def seqvae_analysis():
 
 def linear_baselines_analysis():
     cfgs = experiments.linear_baselines()
-    params = [1, 2, 3, 5, 10, 20, 40]
+    params = [1, 3, 6, 12, 24, 48]
     compare_param_analysis(
         cfgs,
-        [1, 2, 3, 5, 10, 20, 40],
-        ['per_channel', 'individual'],
+        [1, 3, 6, 12, 24, 48],
+        ['homogeneous', 'per_channel'],
         param_name='input length',
         save_dir='linear_baselines'
     )
+
+def linear_baselines_prediction_analysis():
+    from analysis.analyze_performance import analyze_predictivity
+    cfgs = experiments.linear_baselines()
+    for seed, cfg_list in cfgs.items():
+        for cfg in cfg_list:
+            analyze_predictivity(cfg)
 
 def vqvae_decode_analysis():
     cfgs = experiments.vqvae_decode()
@@ -572,6 +580,15 @@ def pc_compare_models_analysis():
     model_list = experiments.model_list
     compare_model_training_curves(
         cfgs, 'pc_compare_models',
+        model_list=model_list, 
+        plot_model_lists=plot_lists
+    )
+
+def pc_compare_models_visual_analysis():
+    cfgs = experiments.pc_compare_models_visual()
+    model_list = experiments.model_list
+    compare_model_training_curves(
+        cfgs, 'pc_compare_models_visual',
         model_list=model_list, 
         plot_model_lists=plot_lists
     )
@@ -609,9 +626,7 @@ def sim_compare_models_analysis():
 def sim_compare_models_train_length_analysis():
     cfgs = experiments.sim_compare_models_train_length()
     model_list = experiments.model_list
-    train_length = []
     param_list = np.log2([512, 2048, 8192, 65536, ])
-
     compare_param_analysis(
         cfgs, param_list, model_list=model_list, param_name='log(Training Length)', 
         save_dir='sim_compare_models',
@@ -626,29 +641,98 @@ def sim_compare_models_train_length_analysis():
         plot_model_lists=plot_lists
     )
 
-def plot_pcs_analysis():
-    from configs.configs import NeuralPredictionConfig
-    import matplotlib.pyplot as plt
+def direct_decode_analysis():
+    cfgs = experiments.direct_decode()
+    model_list = ['fan_in', 'zero', 'one_hot']
+    compare_model_training_curves(
+        cfgs, 'direct_decode', 
+        model_list=model_list,
+        mode_list=[
+            'Transformer', 'Linear', 
+            'Transformer_norm', 'Linear_norm', 
+            'Transformer_normloss', 'Linear_normloss',
+        ],
+        plot_train_test_curve=False
+    )
 
-    config: NeuralPredictionConfig = experiments.pc_compare_models()[0][0]
+def vavae_decode_compare_init_analysis():
+    cfgs = experiments.vqvae_decode_compare_init()
+    model_list =  ['fan_in', 'zero', 'one_hot']
+    compare_model_training_curves(
+        cfgs, 'vqvae_decode_compare_init', 
+        model_list=model_list,
+        mode_list=[
+            'Transformer', 'MLP', 'Linear', 
+            'Transformer_norm', 'MLP_norm', 'Linear_norm', 
+            'Transformer_normloss', 'MLP_normloss', 'Linear_normloss', 
+        ],
+        plot_train_test_curve=False
+    )
+
+def plot_pcs(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
+    import matplotlib.pyplot as plt
+    from scipy import signal
+
     config.train_split = 1
     config.val_split = 0
-    config.patch_length = 10000
-    dataset = Zebrafish(config, 'train')
+    config.patch_length = 500000
+    
+    if config.dataset == 'zebrafish':
+        dataset = Zebrafish(config, 'train')
+    elif config.dataset == 'simulation':
+        dataset = Simulation(config, 'train')
+    elif config.dataset == 'zebrafish_visual':
+        dataset = VisualZebrafish(config, 'train')
 
-    for idx, data in enumerate(dataset.neural_data):
-        
+    for title, data in zip(titles, dataset.neural_data):
         length = len(data)
-        plt.figure(figsize=(4, 10))
+        plt.figure(figsize=(10, 10))
         # a subplot for each pc
-        for i in range(10):
-            plt.subplot(10, 1, i + 1)
-            plt.plot(data[i])
-            smoothed = np.convolve(data[i], np.ones(250) / 250, mode='same')
-            plt.plot(smoothed, color='red')
-            plt.title(f'PC{i + 1}')
 
-        save_dir = osp.join(FIG_DIR, 'visualization_pc')
+        for i in range(10):
+            ax = plt.subplot(10, 2, i * 2 + 1)
+            ax.plot(data[i])
+            smoothed = np.convolve(data[i], np.ones(250) / 250, mode='same')
+            ax.plot(smoothed, color='red')
+            ax.set_ylabel(f'Dim {i + 1}')
+
+            # plot the power spectrum
+            ax = plt.subplot(10, 2, i * 2 + 2)
+            f, Pxx = signal.periodogram(data[i], fs=1)
+            ax.plot(f[1: ], Pxx[1: ])
+            ax.set_yscale('log')
+            ax.set_ylabel('Power')
+
+        save_dir = osp.join(FIG_DIR, 'visualization_pc', sub_save_dir)
         os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(osp.join(save_dir, f'pc_{idx}'))
+        plt.savefig(osp.join(save_dir, f'pc_{title}.png'))
         plt.close()
+
+def plot_pcs_analysis():
+    from utils.data_utils import get_exp_names, get_subject_ids
+    
+    config: NeuralPredictionConfig = experiments.pc_compare_models()[0][0]
+    exp_names = get_exp_names()
+    all_titles = []
+    for key in exp_names:
+        all_titles.extend([f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
+    plot_pcs(config, 'PCs', all_titles)
+
+    config = experiments.pc_compare_models_visual()[0][0]
+    exp_names = get_subject_ids()
+    exp_names = [f'visual_{name}' for name in exp_names]
+    plot_pcs(config, 'visual_PCs', exp_names)
+
+    config = experiments.compare_models_average()[0][0]
+    exp_names = get_exp_names()
+    all_titles = []
+    for key in exp_names:
+        all_titles.extend([f'average_{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
+    plot_pcs(config, 'average', all_titles)
+
+    for i, n_neurons in enumerate([256, 512]):
+        config = experiments.sim_compare_models()[0][i * len(experiments.model_list)]
+        config.train_data_length = 3000
+        config.pc_dim = n_neurons
+        exp_names = [f'sim_{n_neurons}']
+        plot_pcs(config, 'sim', exp_names)
