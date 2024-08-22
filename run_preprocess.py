@@ -11,4 +11,4 @@ if __name__ == '__main__':
     process_spontaneous_activity()
 
     # load and process fish activity with visual stimulus
-    # process_visual_activity()
+    process_visual_activity()

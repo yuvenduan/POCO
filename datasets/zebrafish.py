@@ -11,7 +11,9 @@ import torch.nn.functional as F
 import numpy as np
 import logging
 import os
+import time
 
+from tqdm import tqdm
 from configs.configs import NeuralPredictionConfig
 from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR
 from utils.data_utils import get_exp_names, get_subject_ids
@@ -91,54 +93,29 @@ class NeuralDataset(tud.Dataset):
 
             animal_idx += 1
         
+        self.window_stride = config.test_set_window_stride if phase != 'train' else 1
         self.seq_length = config.seq_length
-        self.data_length = [max(0, data.shape[1] - self.seq_length) for data in self.neural_data]
+        self.data_length = [max(0, (data.shape[1] - self.seq_length - 1) // self.window_stride + 1) for data in self.neural_data]
         self.num_animals = animal_idx
         self.target_mode = config.target_mode
 
-        self.get_chance_performance()
-        logging.info(f"""
-            ---- {phase} dataset info ----
-            copy mse/mae: {self.copy_performance[0]:.6f} {self.copy_performance[1]:.6f}
-            chance mse/mae: {self.chance_performance[0]:.6f} {self.chance_performance[1]:.6f}
-            num_animals: {self.num_animals}, total patch: {len(self.neural_data)}, total_length: {len(self)}
-            input_size: {self.datum_size}
-            data_length: {self.data_length}
-            ------------------------------
-        """)
 
-    def get_chance_performance(self):
-        loss_list = []
-        act_list = []
-        deriv_list = []
-
-        for idx in range(len(self)):
-            data, info = self[idx]
-
-            target_dim = data.shape[1] - self.stimuli_dim
-            if self.pred_length > 0: # for predicition, calculate the performance when copying the last frame
-                error = data[-self.pred_length: , : target_dim] - data[-self.pred_length - 1, : target_dim] # L * D
-            else: # for reconstruction, calculate the performance when copying the mean
-                error = data[:, : target_dim] - data[:, : target_dim].mean(dim=0)
-            loss_list.append(error.reshape(-1))
-
-            act_list.append(data[-self.pred_length: ].reshape(-1))
-
-            if self.target_mode == 'derivative':
-                deriv_list.append((data[-self.pred_length: ] - data[-self.pred_length - 1: -1]).reshape(-1))
+        logging.info(f"---- {phase} dataset info ----")
+        if phase != 'train' and config.show_chance:
+            self.baseline = self.get_detailed_chance_performance()
+            logging.info(f"""
+    copy mse/mae: {self.baseline['avg_copy_mse']:.6f} {self.baseline['avg_copy_mae']:.6f}
+    chance mse/mae: {self.baseline['avg_chance_mse']:.6f} {self.baseline['avg_chance_mae']:.6f}
+            """)
         
-        act_list = np.concatenate(act_list)
-        loss_list = np.concatenate(loss_list)
-        # mse, mae
-        self.copy_performance = (np.mean(np.square(loss_list)), np.mean(np.abs(loss_list)))
-
-        if self.target_mode == 'raw':
-            self.chance_performance = (np.mean(np.square(act_list - np.mean(act_list))), np.mean(np.abs(act_list - np.mean(act_list))))
-        elif self.target_mode == 'derivative':
-            deriv_list = np.concatenate(deriv_list)
-            self.chance_performance = (np.mean(np.square(deriv_list - np.mean(deriv_list))), np.mean(np.abs(deriv_list - np.mean(deriv_list))))
-        else:
-            raise NotImplementedError
+        logging.info(f"""
+    num_animals: {self.num_animals}, total patch: {len(self.neural_data)}, total_length: {len(self)}
+    input_size: {self.datum_size}
+    data_length: {self.data_length}
+------------------------------
+        """)
+        
+    # reimplement get chance performance to reduce memory usage (by keeping only the sum of error and count)
         
     def get_detailed_chance_performance(self):
         assert self.stimuli_dim == 0
@@ -153,32 +130,49 @@ class NeuralDataset(tud.Dataset):
 
         for size in self.datum_size:
             pred_num.append(np.zeros(size))
-            sum_copy_mse.append(np.zeros((self.pred_length, size)))
-            sum_copy_mae.append(np.zeros((self.pred_length, size)))
+            if self.pred_length > 0:
+                sum_copy_mse.append(np.zeros((self.pred_length, size)))
+                sum_copy_mae.append(np.zeros((self.pred_length, size)))
+            else:
+                sum_copy_mse.append(np.zeros((self.seq_length, size)))
+                sum_copy_mae.append(np.zeros((self.seq_length, size)))
+            
             sum_chance_mse.append(np.zeros(size))
             sum_chance_mae.append(np.zeros(size))
             act_list.append(np.zeros(size))
 
-        for idx in range(len(self)):
+        print('Calculating chance performance...')
+        for idx in tqdm(range(len(self))):
             data, info = self[idx]
-            data: np.ndarray = data.numpy()
+
+            data: np.ndarray = data
             animal_idx = info['animal_idx']
-            error = data[-self.pred_length: ] - data[-self.pred_length - 1, :] # L * D
+
+            if self.pred_length > 0:
+                # for predicition, calculate the performance when copying the last frame
+                error = data[-self.pred_length: ] - data[-self.pred_length - 1, :] # L * D
+                act_list[animal_idx] += data[-self.pred_length: ].mean(axis=0)
+            else:
+                # for reconstruction, calculate the performance when copying the mean
+                error = data - data.mean(axis=0)
+                act_list[animal_idx] += data.mean(axis=0)
             
             pred_num[animal_idx] += 1
             sum_copy_mse[animal_idx] += np.square(error)
             sum_copy_mae[animal_idx] += np.abs(error)
-            act_list[animal_idx] += data[-self.pred_length: ].mean(axis=0)
 
         # get the mean activation for each channel
         for idx in range(self.num_animals):
             act_list[idx] = act_list[idx] / pred_num[idx]
 
-        for idx in range(len(self)):
+        for idx in tqdm(range(len(self))):
             data, info = self[idx]
-            data: np.ndarray = data.numpy()
+            data: np.ndarray = data
             animal_idx = info['animal_idx']
-            error = data[-self.pred_length: ] - act_list[animal_idx] # L * D
+            if self.pred_length > 0:
+                error = data[-self.pred_length: ] - act_list[animal_idx] # L * D
+            else:
+                error = data - act_list[animal_idx]
             sum_chance_mse[animal_idx] += np.square(error).mean(axis=0) # D
             sum_chance_mae[animal_idx] += np.abs(error).mean(axis=0) # D
 
@@ -192,6 +186,12 @@ class NeuralDataset(tud.Dataset):
         animal_copy_mse = []
         animal_copy_mae = []
 
+        all_pred_num = 0
+        all_copy_mse = 0
+        all_copy_mae = 0
+        all_chance_mse = 0
+        all_chance_mae = 0
+
         for animal_idx in range(self.num_animals):
             copy_mse.append(sum_copy_mse[animal_idx].mean(axis=0) / pred_num[animal_idx])
             copy_mae.append(sum_copy_mae[animal_idx].mean(axis=0) / pred_num[animal_idx])
@@ -203,6 +203,12 @@ class NeuralDataset(tud.Dataset):
             animal_chance_mse.append(chance_mse[-1].mean())
             animal_chance_mae.append(chance_mae[-1].mean())
 
+            all_pred_num += pred_num[animal_idx].sum()
+            all_copy_mse += sum_copy_mse[animal_idx].mean(axis=0).sum()
+            all_copy_mae += sum_copy_mae[animal_idx].mean(axis=0).sum()
+            all_chance_mse += sum_chance_mse[animal_idx].sum()
+            all_chance_mae += sum_chance_mae[animal_idx].sum()
+
         return_dict = {
             'pred_num': pred_num,
             'copy_mse': copy_mse,
@@ -212,7 +218,11 @@ class NeuralDataset(tud.Dataset):
             'animal_chance_mse': animal_chance_mse,
             'animal_chance_mae': animal_chance_mae,
             'animal_copy_mse': animal_copy_mse,
-            'animal_copy_mae': animal_copy_mae
+            'animal_copy_mae': animal_copy_mae,
+            'avg_copy_mse': all_copy_mse / all_pred_num,
+            'avg_copy_mae': all_copy_mae / all_pred_num,
+            'avg_chance_mse': all_chance_mse / all_pred_num,
+            'avg_chance_mae': all_chance_mae / all_pred_num,
         }
 
         # calculate the mean prediction performance for different PCs by doing weighted averaging
@@ -247,9 +257,8 @@ class NeuralDataset(tud.Dataset):
             patch_idx += 1
 
         animal_idx = self.animal_id[patch_idx]
-        data = self.neural_data[patch_idx][:, idx: idx + self.seq_length].transpose()
-        data = torch.from_numpy(data).float()
-
+        pos = idx * self.window_stride
+        data = self.neural_data[patch_idx][:, pos: pos + self.seq_length].transpose()
         info = {'animal_idx': animal_idx, 'time_idx': idx, }
 
         return data, info
@@ -270,7 +279,7 @@ class NeuralDataset(tud.Dataset):
                 info_list.append({'animal_idx': animal_idx, 'time_idx': [], 'normalize_coef': self.normalize_coef[animal_idx]})
                 continue
 
-            data = torch.stack([batch[idx][0] for idx in indices], dim=1) # L * B * D
+            data = torch.stack([torch.from_numpy(batch[idx][0]).float() for idx in indices], dim=1) # L * B * D
             input_list.append(data[: -self.pred_length] if self.pred_length > 0 else data)
             target_dim = data.shape[2] - self.stimuli_dim
 
@@ -313,7 +322,7 @@ class Zebrafish(NeuralDataset):
                         
                         if config.brain_regions == 'all':
                             # use all brain regions
-                            all_activity: np.ndarray = fishdata['M'][fishdata['valid_indices'], ::config.sampling_rate]
+                            all_activity: np.ndarray = fishdata['M'][:, ::config.sampling_rate]
                         elif config.brain_regions == 'average':
                             # use average activity of all brain regions
                             all_activity = np.empty((len(all_regions), fishdata['M'].shape[1] // config.sampling_rate))
@@ -404,7 +413,8 @@ class VisualZebrafish(NeuralDataset):
                 all_activities.append(all_activity)
         return all_activities
     
-def get_baseline_performance(config, phase='train', details=False):
+def get_baseline_performance(config, phase='train'):
+    config.show_chance = True
     if config.dataset == 'zebrafish':
         dataset = Zebrafish(config, phase=phase)
     elif config.dataset == 'simulation':
@@ -412,7 +422,4 @@ def get_baseline_performance(config, phase='train', details=False):
     elif config.dataset == 'zebrafish_visual':
         dataset = VisualZebrafish(config, phase=phase)
 
-    if not details:
-        return dataset.copy_performance, dataset.chance_performance
-    else:
-        return dataset.get_detailed_chance_performance()
+    return dataset.baseline

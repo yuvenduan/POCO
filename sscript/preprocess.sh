@@ -6,4 +6,4 @@
 #SBATCH -p test
 #SBATCH -e ./sbatch/slurm-%j.out
 #SBATCH -o ./sbatch/slurm-%j.out
-python generate_sim.py
+python run_preprocess.py

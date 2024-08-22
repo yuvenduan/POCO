@@ -9,7 +9,7 @@ import pandas as pd
 from configs.config_global import ROOT_DIR
 
 def configs_transpose(config_dict, config_shape):
-    """permute configs_dict to config_list"""
+    """For each list of configs in config_dict, transpose the list to a new list, config_shape should be a 2d tuple"""
     new_config_dict = dict()
     for seed, config_list in config_dict.items():
         new_config_list = []

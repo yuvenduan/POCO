@@ -40,8 +40,12 @@ def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=Non
         except:
             print("Incomplete data:", cfg.save_path)
 
-    performance = np.stack(performance, axis=1)
+    
     x_axis = np.arange((start + 1) * eval_interval, max_batch + 1, plot_every * eval_interval)
+    if len(performance) == 0:
+        performance = np.zeros_like(x_axis).reshape(-1, 1)
+    else:
+        performance = np.stack(performance, axis=1)
 
     return performance, x_axis
 
@@ -137,7 +141,7 @@ def compare_model_training_curves(
     performance = []
 
     for i, mode in enumerate(mode_list):
-        val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list)], 'val')[0][0]
+        val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list)], 'val')['avg_copy_mse']
         performance = []
         train_performance = []
 
@@ -258,7 +262,7 @@ def sim_compare_n_neurons_analysis():
 
     for i, n in enumerate(n_regions):
         for j, m in enumerate(n_neurons):
-            val_baseline_performance = get_baseline_performance(cfgs[0][(i * len(n_neurons) + j) * len(models)], 'val')[0][0]
+            val_baseline_performance = get_baseline_performance(cfgs[0][(i * len(n_neurons) + j) * len(models)], 'val')['avg_copy_mse']
             def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
                 plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
@@ -314,7 +318,7 @@ def sim_compare_pca_dim_analysis():
                     train_curve, x_axis = get_curve(cfgs, idx, key='train_end_loss')
                     curves.append(test_curve)
 
-                val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list) * len(pc_dims) + k], 'val')[0][0]
+                val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list) * len(pc_dims) + k], 'val')['avg_copy_mse']
                 def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
                     plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
             except:
@@ -358,7 +362,7 @@ def compare_param_analysis(
 
         curves.append(performances)
 
-    val_baseline_performance = [get_baseline_performance(cfgs[0][j], 'val') for j in range(len(param_list))[0][0]]
+    val_baseline_performance = [get_baseline_performance(cfgs[0][j], 'val') for j in range(len(param_list))['avg_copy_mse']]
     def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
         plt.plot(param_list, val_baseline_performance, color='gray', linestyle='--', linewidth=linewidth)
 
@@ -409,7 +413,7 @@ def sim_compare_train_length_analysis():
     model_list = ['Transformer', 'RNN', 'S4']
     mean_performance = {key: [] for key in model_list}
     baseline_performances = [
-        get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'val')[0][0] 
+        get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'val')['avg_copy_mse'] 
             for i in range(len(n_neurons))]
     
     for i, n in enumerate(n_neurons):
@@ -497,7 +501,7 @@ def seqvae_analysis():
     train_curve_list = []
     val_curve_list = []
 
-    val_baseline_performance = get_baseline_performance(cfgs[0][0], 'val')[0][0]
+    val_baseline_performance = get_baseline_performance(cfgs['avg_copy_mse'], 'val')['avg_copy_mse']
     def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
         plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
@@ -571,35 +575,45 @@ def vqvae_decode_analysis():
 plot_lists = {
     'AR': ['AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM'],
     'Latent': ['Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN'],
-    'TOTEM': ['TOTEM_Transformer', 'TOTEM_MLP'],
-    'Selected': ['TOTEM_MLP', 'Latent_CTRNN', 'AR_S4', 'Linear', 'TCN']
+    'TOTEM': ['Transformer_TOTEM', 'MLP_TOTEM', 'Linear_TOTEM', 'POYO_TOTEM'],
+    'Decoder': ['Transformer', 'MLP', 'Linear', 'POYO'],
+    'Selected': ['Linear', 'Transformer', 'POYO', 'POYO_TOTEM', 'AR_S4', 'Latent_CTRNN'],
 }
 
-def pc_compare_models_analysis():
-    cfgs = experiments.pc_compare_models()
+def compare_models_pc_analysis():
+    cfgs = experiments.compare_models_pc()
     model_list = experiments.model_list
+    plot_lists['Selected'] = ['Linear', 'Transformer', 'POYO', 'POYO_TOTEM', 'Latent_CTRNN', 'TCN']
     compare_model_training_curves(
-        cfgs, 'pc_compare_models',
+        cfgs, 'compare_models', 
         model_list=model_list, 
-        plot_model_lists=plot_lists
+        mode_list=['spontaneous_pc', 'visual_pc', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
     )
 
-def pc_compare_models_visual_analysis():
-    cfgs = experiments.pc_compare_models_visual()
+def compare_models_sim_analysis():
+    cfgs = experiments.compare_models_sim()
     model_list = experiments.model_list
+    plot_lists['Selected'] = ['Linear', 'Transformer', 'POYO', 'POYO_TOTEM', 'Latent_CTRNN', 'AR_S4']
     compare_model_training_curves(
-        cfgs, 'pc_compare_models_visual',
+        cfgs, 'compare_models_sim', 
         model_list=model_list, 
-        plot_model_lists=plot_lists
+        mode_list=['sim256', 'sim1024', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
     )
 
-def compare_models_average_analysis():
-    cfgs = experiments.compare_models_average()
-    model_list = experiments.model_list
+def compare_models_single_neuron_analysis():
+    cfgs = experiments.compare_models_single_neuron()
+    model_list = experiments.single_neuron_model_list
+    plot_lists = {'Selected': ['POYO_TOTEM', 'POYO', 'Linear',] }
     compare_model_training_curves(
-        cfgs, 'compare_models_average', 
+        cfgs, 'compare_models_single_neuron', 
         model_list=model_list, 
-        plot_model_lists=plot_lists
+        mode_list=['visual', 'spontaneous', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
     )
 
 def compare_models_individual_region_analysis():
@@ -611,16 +625,6 @@ def compare_models_individual_region_analysis():
         mode_list=['l_LHb', 'l_MHb', 'l_dthal', 'l_gc', 'l_raphe', 'l_vent', 'l_vthal', ],
         plot_model_lists=plot_lists,
         plot_train_test_curve=False
-    )
-
-def sim_compare_models_analysis():
-    cfgs = experiments.sim_compare_models()
-    model_list = experiments.model_list
-    compare_model_training_curves(
-        cfgs, 'sim_compare_models', 
-        model_list=model_list, 
-        mode_list=[256, 512, ],
-        plot_model_lists=plot_lists
     )
 
 def sim_compare_models_train_length_analysis():
@@ -643,15 +647,40 @@ def sim_compare_models_train_length_analysis():
 
 def direct_decode_analysis():
     cfgs = experiments.direct_decode()
-    model_list = ['fan_in', 'zero', 'one_hot']
+    model_list = ['Transformer', 'MLP', 'Linear', ]
     compare_model_training_curves(
         cfgs, 'direct_decode', 
         model_list=model_list,
-        mode_list=[
-            'Transformer', 'Linear', 
-            'Transformer_norm', 'Linear_norm', 
-            'Transformer_normloss', 'Linear_normloss',
-        ],
+        mode_list=['no_norm', 'norm', 'norm_loss'],
+        plot_train_test_curve=False
+    )
+
+def poyo_test_analysis():
+    cfgs = experiments.poyo_test()
+    model_list = ['no_norm', 'norm', 'norm_loss']
+    compare_model_training_curves(
+        cfgs, 'poyo_test',
+        model_list=model_list,
+        mode_list=[1, 8, 48],
+        plot_train_test_curve=False
+    )
+
+def poyo_compare_params_analysis():
+    cfgs = experiments.poyo_compare_params()
+    model_list = ['POYO_TOTEM_projs', 'POYO_projs', 'POYO_TOTEM', 'POYO', ]
+    compare_model_training_curves(
+        cfgs, 'poyo_compare_params',
+        model_list=model_list,
+        mode_list=['4_4', '4_16', '4_64', '16_4', '16_16', '16_64', ],
+        plot_train_test_curve=False
+    )
+
+    model_list = ['4_4', '4_16', '4_64', '16_4', '16_16', '16_64', ]
+    cfgs = configs_transpose(cfgs, (6, 4))
+    compare_model_training_curves(
+        cfgs, 'poyo_compare_params',
+        model_list=model_list,
+        mode_list=['POYO_TOTEM_projs', 'POYO_projs', 'POYO_TOTEM', 'POYO', ],
         plot_train_test_curve=False
     )
 
@@ -669,13 +698,14 @@ def vavae_decode_compare_init_analysis():
         plot_train_test_curve=False
     )
 
-def plot_pcs(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
+def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
     import matplotlib.pyplot as plt
     from scipy import signal
 
     config.train_split = 1
     config.val_split = 0
     config.patch_length = 500000
+    config.show_chance = False
     
     if config.dataset == 'zebrafish':
         dataset = Zebrafish(config, 'train')
@@ -688,6 +718,10 @@ def plot_pcs(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
         length = len(data)
         plt.figure(figsize=(10, 10))
         # a subplot for each pc
+
+        if length < 10:
+            print(f'{title} has less than 10 dimensions')
+            continue
 
         for i in range(10):
             ax = plt.subplot(10, 2, i * 2 + 1)
@@ -703,36 +737,56 @@ def plot_pcs(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
             ax.set_yscale('log')
             ax.set_ylabel('Power')
 
-        save_dir = osp.join(FIG_DIR, 'visualization_pc', sub_save_dir)
+        save_dir = osp.join(FIG_DIR, 'traces_visualization', sub_save_dir)
         os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(osp.join(save_dir, f'pc_{title}.png'))
+        plt.savefig(osp.join(save_dir, f'{title}.png'))
         plt.close()
 
-def plot_pcs_analysis():
+        # plot 2 sample patches of lenth 64 for each dimension 
+
+        plt.figure(figsize=(10, 10))
+        for i in range(10):
+            for j in range(2):
+                length = len(data[i])
+                
+                start = np.random.randint(0, length - 64)
+                ax = plt.subplot(10, 2, i * 2 + j + 1)
+                ax.plot(data[i][start: start + 64])
+                ax.set_ylabel(f'Dim {i + 1}')
+
+        plt.savefig(osp.join(save_dir, f'{title}_patch.png'))
+        plt.close()
+
+def plot_traces_analysis():
     from utils.data_utils import get_exp_names, get_subject_ids
-    
-    config: NeuralPredictionConfig = experiments.pc_compare_models()[0][0]
+
+    config: NeuralPredictionConfig = experiments.compare_models_pc()[0][0]
     exp_names = get_exp_names()
     all_titles = []
     for key in exp_names:
         all_titles.extend([f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
-    plot_pcs(config, 'PCs', all_titles)
+    plot_traces(config, 'spontaneous_PCs', all_titles)
 
-    config = experiments.pc_compare_models_visual()[0][0]
+    config = experiments.compare_models_pc()[0][len(experiments.model_list)]
     exp_names = get_subject_ids()
     exp_names = [f'visual_{name}' for name in exp_names]
-    plot_pcs(config, 'visual_PCs', exp_names)
+    plot_traces(config, 'visual_PCs', exp_names)
 
-    config = experiments.compare_models_average()[0][0]
-    exp_names = get_exp_names()
-    all_titles = []
-    for key in exp_names:
-        all_titles.extend([f'average_{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
-    plot_pcs(config, 'average', all_titles)
-
-    for i, n_neurons in enumerate([256, 512]):
-        config = experiments.sim_compare_models()[0][i * len(experiments.model_list)]
+    for i, n_neurons in enumerate([512, 1024]):
+        config = experiments.compare_models_sim()[0][i * len(experiments.model_list)]
         config.train_data_length = 3000
         config.pc_dim = n_neurons
         exp_names = [f'sim_{n_neurons}']
-        plot_pcs(config, 'sim', exp_names)
+        plot_traces(config, 'sim', exp_names)
+
+    config = experiments.compare_models_single_neuron()[0][0]
+    exp_names = get_exp_names()
+    all_titles = []
+    for key in exp_names:
+        all_titles.extend([f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
+    plot_traces(config, 'spontaneous', all_titles)
+
+    config = experiments.compare_models_single_neuron()[0][len(experiments.single_neuron_model_list)]
+    exp_names = get_subject_ids()
+    exp_names = [f'visual_{name}' for name in exp_names]
+    plot_traces(config, 'visual', exp_names)

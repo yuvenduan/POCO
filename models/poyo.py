@@ -1,0 +1,110 @@
+# Adapted from POTO repo
+import numpy as np
+import torch
+import torch.nn as nn
+
+from models.poyo_nn import (
+    Embedding,
+    InfiniteVocabEmbedding,
+    PerceiverRotary,
+    compute_loss_or_metric,
+)
+
+class POYO(nn.Module):
+
+    def __init__(
+        self,
+        *,
+        input_dim=1,
+        dim=512,
+        dim_head=64,
+        num_latents=64,
+        depth=2,
+        cross_heads=1,
+        self_heads=8,
+        ffn_dropout=0.2,
+        lin_dropout=0.4,
+        atn_dropout=0.0,
+        emb_init_scale=0.02,
+        use_memory_efficient_attn=True,
+        datum_size=None,
+        query_length=1,
+        T_step=1
+    ):
+        super().__init__()
+
+        self.input_proj = nn.Linear(input_dim, dim)
+        self.unit_emb = Embedding(sum(datum_size), dim, init_scale=emb_init_scale)
+        self.session_emb = Embedding(len(datum_size), dim, init_scale=emb_init_scale)
+        self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
+        self.num_latents = num_latents
+        self.query_length = query_length
+
+        self.perceiver_io = PerceiverRotary(
+            dim=dim,
+            dim_head=dim_head,
+            depth=depth,
+            cross_heads=cross_heads,
+            self_heads=self_heads,
+            ffn_dropout=ffn_dropout,
+            lin_dropout=lin_dropout,
+            atn_dropout=atn_dropout,
+            use_memory_efficient_attn=use_memory_efficient_attn,
+        )
+
+        self.dim = dim
+        self.T_step = T_step
+        self.using_memory_efficient_attn = self.perceiver_io.using_memory_efficient_attn
+
+    def forward(
+        self,
+        # input sequence
+        x: torch.Tensor, # sum(B * D), L, input_dim
+        unit_indices, # sum(B * D)
+        unit_timestamps, # sum(B * D), L
+        input_seqlen, # (B, )
+        # output sequence
+        session_index,  # sum(B * D)
+        pred_step=1, 
+    ):
+
+        # input
+        L = x.shape[1]
+        B = input_seqlen.shape[0]
+        T = L * self.T_step
+        unit_embedding = self.unit_emb(unit_indices) # B * D, dim
+        inputs = unit_embedding.unsqueeze(1) + self.input_proj(x)
+        inputs = inputs.reshape(-1, inputs.shape[2])
+        unit_timestamps = unit_timestamps.reshape(-1)
+
+        # latents
+        latent_index = torch.arange(self.num_latents, device=x.device)
+        latents = self.latent_emb(latent_index)
+        latents = latents.repeat(B, 1, 1) # B, N_latent, dim
+        latents = latents.reshape(-1, latents.shape[2])
+        latent_seqlen = torch.full((B, ), self.num_latents, device=x.device)
+        latent_timestamps = torch.arange(0, T, step=T // self.num_latents, device=x.device)
+        latent_timestamps = latent_timestamps.repeat(B) # B * N_latent
+
+        # outputs
+        output_queries = self.session_emb(session_index) # sum(B * D), dim
+        output_queries = output_queries + unit_embedding # sum(B * D), dim
+        sumD = output_queries.shape[0]
+        output_queries = output_queries.repeat_interleave(self.query_length, dim=0) # sum(B * D * q_len), dim
+        output_timestamps = torch.arange(self.query_length, device=x.device).repeat(sumD) + T # sum(B * D * q_len)
+
+        # feed into perceiver
+        output_latents = self.perceiver_io(
+            inputs=inputs,
+            latents=latents,
+            output_queries=output_queries,
+            input_timestamps=unit_timestamps,
+            latent_timestamps=latent_timestamps,
+            output_query_timestamps=output_timestamps,
+            input_mask=None,
+            input_seqlen=input_seqlen * L,
+            latent_seqlen=latent_seqlen,
+            output_query_seqlen=input_seqlen
+        )
+
+        return output_latents

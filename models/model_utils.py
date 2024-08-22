@@ -23,7 +23,7 @@ def get_rnn_from_config(config: SupervisedLearningBaseConfig, **kwargs):
     )
     return rnn
 
-def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1, **kwargs):
+def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1, residual=False, **kwargs):
     # TODO: support rnn_in_size for transformer and ssm
     """
     Get RNN based on rnn_type
@@ -44,7 +44,7 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
     elif rnn_type == 'CTRNN':
         rnn = CTRNN(rnn_in_size, hidden_size, alpha=alpha, num_layers=num_layers, **kwargs)
     elif rnn_type == 'LRRNN':
-        rnn = CTRNNCell(rnn_in_size, hidden_size, alpha=alpha, rank=rank, residual=kwargs.get('residual', True))
+        rnn = CTRNNCell(rnn_in_size, hidden_size, alpha=alpha, rank=rank, residual=residual, **kwargs)
     elif rnn_type == 'BiGRU':
         rnn = nn.GRU(rnn_in_size, hidden_size, bidirectional=True, num_layers=num_layers, **kwargs)
     elif rnn_type == 'Transformer':

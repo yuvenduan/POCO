@@ -21,6 +21,8 @@ class BaseConfig(object):
         self.task_type = None
         self.dataset = None
         self.save_path = None
+        self.model_label = None
+        self.datalabel = None
         self.seed = 0
 
         # Weight for each dataset
@@ -81,7 +83,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.perform_test = True
         self.log_every = 100
         self.save_every = 100000
-        self.test_batch = 100
+        self.test_batch = 100000
 
         # autoregressive model config
         self.print_mode = 'error'
@@ -167,9 +169,13 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.encoder_state_dict_file = f'net_{self.max_batch}.pth'
         self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
         self.decoder_hidden_size = 256
-        self.separate_projs = False
+        self.separate_projs = True
         self.decoder_proj_init = 'fan_in'
         self.mu_std_loss_coef = 0 # if None, do not normalize; otherwise normalize the input, the predicted mean and std
+        self.poyo_num_latents = 8
+        self.poyo_query_mode = 'single' # or 'multi'
+        self.decoder_num_layers = 4
+        self.decoder_num_heads = 8
 
         self.do_analysis = False
 
@@ -185,13 +191,14 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
 
         self.seq_length = 64 # the total length of a sequence
         self.pred_length = 16 # the last pred_length frames will be predicted
-        self.train_split = 0.7
-        self.val_split = 0.3
+        self.train_split = 0.6
+        self.val_split = 0.2
+        self.test_split = 0.2
         self.target_mode = 'raw' # or 'derivative'
         self.wdecay = 1e-4
-        self.perform_test = False
+        self.perform_test = True
         self.perform_val = True
-        self.patch_length = 500 # train and val sets will be devided in each patch_length segment
+        self.patch_length = 1000 # train and val sets will be devided in each patch_length segment
         self.loss_mode = 'autoregressive' 
         # or 'prediction', for the latter the target will be the next frame
 
@@ -201,6 +208,7 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.pc_dim = 512 # number of principal components to used for training, if None, predict original data
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
         self.sampling_rate = 1 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
+        self.test_set_window_stride = 1 # larger stride will make the test set smaller but faster to evaluate
 
         # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
         # or 'average' (in which case we will average the neural activity within each brain region)
@@ -221,7 +229,10 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.use_eye_movements = False
         self.use_motor = False
 
-        self.max_batch = 5000
-        self.test_batch = 10000 # test on all available data 
+        self.max_batch = 20000
+        self.test_batch = 100000 # test on all available data 
         self.mem = 32
         self.do_analysis = False
+        
+        # whether to show chance performance for val / test set, could be slow for large datasets
+        self.show_chance = True

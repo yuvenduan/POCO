@@ -68,6 +68,7 @@ class NeuralPrediction(TaskFunction):
         self.do_analysis = config.do_analysis
         self.loss_mode = config.loss_mode
         self.pred_step = config.pred_length
+        self.seq_len = config.seq_length
         self.target_mode = config.target_mode
         self.config = config
         self.datum_size = datum_size
@@ -88,8 +89,9 @@ class NeuralPrediction(TaskFunction):
         for phase in ['train', 'val', 'test']:
             for size in self.datum_size:
                 self.pred_num[phase].append(np.zeros(size))
-                self.sum_mse[phase].append(np.zeros((self.pred_step, size)))
-                self.sum_mae[phase].append(np.zeros((self.pred_step, size))) # L, D
+                L = self.pred_step if self.pred_step > 0 else self.seq_len
+                self.sum_mse[phase].append(np.zeros((L, size)))
+                self.sum_mae[phase].append(np.zeros((L, size))) # L, D
 
         self.recon_loss_list = {'train': [], 'val': [], 'test': []}
         self.vae_loss_list = {'train': [], 'val': [], 'test': []}
@@ -127,8 +129,11 @@ class NeuralPrediction(TaskFunction):
                 ))
             
             with torch.no_grad():
-                loss_array = torch.abs(out - tar)[-self.pred_step: ] # shape: L, B, D
-                assert loss_array.shape[0] == self.pred_step
+                if self.pred_step > 0:
+                    loss_array = torch.abs(out - tar)[-self.pred_step: ] # shape: L, B, D
+                    assert loss_array.shape[0] == self.pred_step
+                else:
+                    loss_array = torch.abs(out - tar)
 
                 self.sum_mse[phase][idx] += loss_array.pow(2).sum(dim=1).cpu().numpy()
                 self.sum_mae[phase][idx] += loss_array.sum(dim=1).cpu().numpy()
@@ -184,14 +189,14 @@ class NeuralPrediction(TaskFunction):
             sum_mse = 0
             sum_mae = 0
             for idx in range(len(self.datum_size)):
-                sum_pred_num += self.pred_num[phase][idx].sum() * self.pred_step
+                sum_pred_num += self.pred_num[phase][idx].sum() * (self.pred_step if self.pred_step > 0 else self.seq_len)
                 sum_mse += self.sum_mse[phase][idx].sum()
                 sum_mae += self.sum_mae[phase][idx].sum()
 
             logger.log_tabular(f'{phase}_mse', sum_mse / sum_pred_num)
             logger.log_tabular(f'{phase}_mae', sum_mae / sum_pred_num)
             
-            if is_best:
+            if is_best and len(self.sample_trials[phase]) > 0:
 
                 # visualize prediction of the first/last dimension for 10 random trials
                 for pc in [0, 20, 50, -1]:

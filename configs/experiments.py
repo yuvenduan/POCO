@@ -410,96 +410,45 @@ def low_rank_rnn():
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
     return configs
 
-def vqvae_pretrain(config: NeuralPredictionConfig, config_ranges, seeds=2):
-    config.model_type = 'VQVAE'
-    config.loss_mode = 'reconstruction'
-    config.seq_length = 48
-    config.pred_length = 0
-    config.save_every = config.max_batch
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=seeds)
-    return configs
-
-def vqvae():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'vqvae'
-
-    config_ranges = OrderedDict()
-    config_ranges['compression_factor'] = [4, 8, 16, ]
-    return vqvae_pretrain(config, config_ranges)
-
-def vqvae_visual():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'vqvae_visual'
-    config.dataset = 'zebrafish_visual'
-    config.use_stimuli = False
-    config.use_eye_movements = False
-
-    config_ranges = OrderedDict()
-    config_ranges['compression_factor'] = [4, ]
-    return vqvae_pretrain(config, config_ranges)
-
-def vqvae_average():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'vqvae_average'
-    config.brain_regions = 'average'
-    config.pc_dim = None
-    config.normalize_mode = 'zscore'
-
-    config_ranges = OrderedDict()
-    config_ranges['compression_factor'] = [4, ]
-    return vqvae_pretrain(config, config_ranges)
-
-def vqvae_sim():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'vqvae_sim'
-    config.dataset = 'simulation'
-    config.pc_dim = None
-    config.sampling_rate = 5
-    config.mem = 64
-
-    config_ranges = OrderedDict()
-    config_ranges['n_neurons'] = [512, 1536, ]
-    config_ranges['train_data_length'] = [2048, 8192, ]
-    config_ranges['compression_factor'] = [4, ]
-    return vqvae_pretrain(config, config_ranges)
-
-def vqvae_decode_compare_init():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'vqvae_decode_compare_init'
-    config.model_type = 'Decoder'
-    config.encoder_state_dict_file = 'net_5000.pth'
-    config.loss_mode = 'prediction'
-    config.separate_projs = True
-    config.max_batch = 20000
-
-    config_ranges = OrderedDict()
-    config_ranges['mu_std_loss_coef'] = [None, 0, 1, ]
-    config_ranges['decoder_type'] = ['Transformer', 'MLP', 'Linear', ]
-    config_ranges['decoder_proj_init'] = ['fan_in', 'zero', 'one_hot', ]
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2, )
-
+def configure_dataset(configs: dict, large=False):
     for seed, config_list in configs.items():
         for config in config_list:
             config: NeuralPredictionConfig
-            config.encoder_dir = f'experiments/vqvae/model_compression_factor{config.compression_factor}_s{seed}'
+            label = config.dataset_label
 
-    return configs
+            if label == 'spontaneous_pc':
+                config.dataset = 'zebrafish'
+                config.pc_dim = 512
+            elif label == 'spontaneous':
+                config.dataset = 'zebrafish'
+                config.pc_dim = None
+                config.batch_size = 8 * (1 + large)
+                config.mem = 128
+                config.test_set_window_stride = 8
+            elif label == 'visual_pc':
+                config.dataset = 'zebrafish_visual'
+                config.pc_dim = 512
+                config.use_stimuli = False
+                config.use_eye_movements = False
+            elif label == 'visual':
+                config.dataset = 'zebrafish_visual'
+                config.pc_dim = None
+                config.use_stimuli = False
+                config.use_eye_movements = False
+                config.batch_size = 1 * (1 + large)
+                config.mem = 128
+                config.test_set_window_stride = 32
+            elif label[:3] == 'sim':
+                config.dataset = 'simulation'
+                config.pc_dim = None
+                config.sampling_rate = 5
+                config.n_neurons = int(label[3:])
+                config.mem = 128
+                if config.n_neurons > 512:
+                    config.batch_size = 16
+            else:
+                raise ValueError(f'Unknown dataset label: {label}')
 
-def direct_decode():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'direct_decode'
-    config.model_type = 'Decoder'
-    config.encoder_dir = None
-    config.loss_mode = 'prediction'
-    config.separate_projs = True
-    config.max_batch = 20000
-
-    config_ranges = OrderedDict()
-    config_ranges['mu_std_loss_coef'] = [None, 0, 1, ]
-    config_ranges['decoder_type'] = ['Transformer', 'Linear', ]
-    config_ranges['decoder_proj_init'] = ['fan_in', 'zero', 'one_hot', ]
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2, )
     return configs
 
 def configure_models(configs: dict):
@@ -508,29 +457,8 @@ def configure_models(configs: dict):
             config: NeuralPredictionConfig
             config.shared_backbone = True
             label = config.model_label
-
-            if label[:5] == 'TOTEM':
-                config.model_type = 'Decoder'
-                config.encoder_state_dict_file = 'net_5000.pth'
-                config.loss_mode = 'prediction'
-                if config.dataset == 'zebrafish' and config.brain_regions == 'average':
-                    config.encoder_dir = \
-                        f'experiments/vqvae_average/model_compression_factor{config.compression_factor}_s{seed}'
-                elif config.dataset == 'zebrafish':
-                    config.encoder_dir = \
-                        f'experiments/vqvae/model_compression_factor{config.compression_factor}_s{seed}'
-                elif config.dataset == 'zebrafish_visual':
-                    config.encoder_dir = \
-                        f'experiments/vqvae_visual/model_compression_factor{config.compression_factor}_s{seed}'
-                elif config.dataset == 'simulation':
-                    if config.train_data_length > 327680 // config.sampling_rate:
-                        config.train_data_length = 327680 // config.sampling_rate
-                    config.encoder_dir = \
-                        f'experiments/vqvae_sim/model_n_neurons{config.n_neurons}_train_data_length{config.train_data_length}_compression_factor{config.compression_factor}_s{seed}'
-                else:
-                    raise ValueError(f'Unknown dataset: {config.dataset}')
-                config.decoder_type = label[6:]
-            elif label[:2] == 'AR':
+            
+            if label[:2] == 'AR':
                 config.loss_mode = 'autoregressive'
                 config.model_type = 'Autoregressive'
                 config.rnn_type = label[3:]
@@ -545,47 +473,212 @@ def configure_models(configs: dict):
                     config.rnn_rank = int(config.rnn_type[6:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
-            elif label == 'Linear':
-                config.loss_mode = 'prediction'
-                config.model_type = 'Linear'
-                config.per_channel = True
-                config.shared_backbone = False
-                config.linear_input_length = config.seq_length - config.pred_length
             elif label == 'TCN':
                 config.loss_mode = 'prediction'
                 config.model_type = 'TCN'
                 config.shared_backbone = config.pc_dim is not None
+            elif label.split('_')[0] in ['Linear', 'MLP', 'Transformer', 'POYO']:
+                config.model_type = 'Decoder'
+                config.loss_mode = 'prediction'
+                config.decoder_type = label.split('_')[0]
+                config.encoder_dir = None
+                config.separate_projs = config.decoder_type != 'POYO'
+
+                if label[-5: ] == 'TOTEM':
+                    data_label = config.dataset_label
+                    config.encoder_dir = \
+                        f'experiments/vqvae/model_dataset_label{data_label}_compression_factor{config.compression_factor}_s{seed}'
+                    config.encoder_state_dict_file = 'net_20000.pth'
             else:
                 raise ValueError(f'Unknown model label: {label}')
 
-    return configs  
+    return configs
 
-def mixed_model_test():
+def vqvae_pretrain(config: NeuralPredictionConfig, config_ranges, seeds=2):
+    config.model_type = 'VQVAE'
+    config.loss_mode = 'reconstruction'
+    config.seq_length = 48
+    config.pred_length = 0
+    config.save_every = config.max_batch
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=seeds)
+    return configs
+
+def vqvae():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'mixed_model_test_pred_loss'
-    config.model_type = 'Mixed'
-    config.per_channel = True
-    config.loss_mode = 'prediction'
-    config.linear_input_length = 24
-    config.rnn_residual_connection = False
-    config.latent_to_ob = 'identity'
-    config.max_batch = 40000
-    config.wdecay = 1e-6
+    config.experiment_name = 'vqvae'
+    config.show_chance = False
 
     config_ranges = OrderedDict()
-    config_ranges['rnn_type'] = ['LRRNN', ]
-    config_ranges['latent_to_ob'] = ['identity', 'linear', ]
-    config_ranges['shared_backbone'] = [True, False, ]
-    config_ranges['rnn_rank'] = [None, 4, 16, ]
+    config_ranges['dataset_label'] = ['spontaneous_pc', 'visual_pc', ]
+    config_ranges['compression_factor'] = [4, 16, ]
+    configs = vqvae_pretrain(config, config_ranges)
+    configs = configure_dataset(configs)
+    return configs
+
+def vqvae_large(): # requires h100, for smaller gpu use smaller batch size
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'vqvae'
+    config.show_chance = False
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['visual', 'spontaneous', ]
+    config_ranges['compression_factor'] = [4, 16, ]
+    configs = vqvae_pretrain(config, config_ranges)
+    configs = configure_dataset(configs, large=True)
+    return configs
+
+def direct_decode():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'direct_decode'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.separate_projs = True
+
+    config_ranges = OrderedDict()
+    config_ranges['mu_std_loss_coef'] = [None, 0, 1, ]
+    config_ranges['decoder_type'] = ['Transformer', 'MLP', 'Linear', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1, )
+    return configs
+
+def poyo_test():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'poyo_test'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.separate_projs = False
+    config.decoder_type = 'POYO'
+
+    config_ranges = OrderedDict()
+    config_ranges['compression_factor'] = [1, 8, 48, ]
+    config_ranges['mu_std_loss_coef'] = [None, 0, 1, ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1, )
+    return configs
+
+def poyo_test_multi_query():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'poyo_test_multi_query'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.decoder_type = 'POYO'
+    config.dataset_label = 'spontaneous_pc'
+
+    config_ranges = OrderedDict()
+    config_ranges['poyo_query_mode'] = ['single', 'multi']
+    config_ranges['compression_factor'] = [4, 16, ]
+    config_ranges['model_label'] = ['POYO', 'POYO_TOTEM', ]
+
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
+    configs = configure_models(configs)
+    return configs
+
+def poyo_compare_params():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'poyo_compare_params'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.decoder_type = 'POYO'
+    config.dataset_label = 'spontaneous_pc'
+
+    config_ranges = OrderedDict()
+    config_ranges['compression_factor'] = [4, 16, ]
+    config_ranges['poyo_num_latents'] = [4, 16, 64, ]
+    config_ranges['separate_projs'] = [True, False, ]
+    config_ranges['model_label'] = ['POYO_TOTEM', 'POYO', ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    return configs
+
+def compare_hidden_size():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_hidden_size'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.mu_std_loss_coef = 0
+    config.show_chance = False
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['spontaneous', 'spontaneous_pc', ]
+    config_ranges['model_label'] = ['POYO', 'Transformer', 'Linear',  ]
+    config_ranges['decoder_hidden_size'] = [64, 256, 1024, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1, )
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_num_layers():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_num_layers'
+    config.model_type = 'Decoder'
+    config.encoder_dir = None
+    config.loss_mode = 'prediction'
+    config.mu_std_loss_coef = 0
+    config.show_chance = False
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['spontaneous', 'spontaneous_pc', ]
+    config_ranges['model_label'] = ['Transformer', 'POYO',  ]
+    config_ranges['decoder_num_layers'] = [1, 2, 4, 8, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1, )
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
     return configs
 
 model_list = [
-    'TOTEM_Transformer', 'TOTEM_MLP', 
+    'POYO_TOTEM', 'Linear_TOTEM', 'MLP_TOTEM', 'Transformer_TOTEM',
+    'POYO', 'Linear', 'MLP', 'Transformer', 
     'AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM',
     'Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN',
-    'Linear', 'TCN'
+    'TCN'
 ]
+
+def compare_models_pc():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['spontaneous_pc', 'visual_pc', ]
+    config_ranges['model_label'] = model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_sim():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['sim256', 'sim1024', ]
+    config_ranges['model_label'] = model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+single_neuron_model_list = [
+    'POYO', 'Linear', 'MLP', 'POYO_TOTEM', 
+]
+
+def compare_models_single_neuron():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['visual', 'spontaneous', ]
+    config_ranges['model_label'] = single_neuron_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
 
 def pc_compare_models():
     config = NeuralPredictionConfig()

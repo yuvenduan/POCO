@@ -11,6 +11,7 @@ from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 
 from models.model_utils import get_rnn, get_pretrained_model, get_rnn_from_config
 from models.TOTEM.models.decode import MuStdModel, XcodeYtimeDecoder
+from models.poyo import POYO
 from configs.config_global import DEVICE
 
 class AutoregressiveModel(nn.Module):
@@ -387,6 +388,7 @@ class Decoder(nn.Module):
             self.encoder = None
             self.TC = self.Tin // config.compression_factor
             self.embed_dim = config.compression_factor
+        self.T_step = self.Tin // self.TC
         
         self.datum_size = datum_size
         if config.mu_std_loss_coef is None:
@@ -395,27 +397,56 @@ class Decoder(nn.Module):
         else:
             self.mu_std_loss_coef = config.mu_std_loss_coef
             self.normalize_seq = True
+        self.embed_length = 1
 
         if config.decoder_type == 'Linear':
             self.decoder = nn.Flatten(1, 2)
             self.embedding_dim = self.TC * self.embed_dim
         elif config.decoder_type == 'MLP':
-            self.decoder = nn.Sequential(nn.Flatten(1, 2), nn.Linear(self.TC * self.embed_dim, config.decoder_hidden_size), nn.ReLU())
+            self.decoder = nn.Sequential(
+                nn.Flatten(1, 2), 
+                nn.Linear(self.TC * self.embed_dim, config.decoder_hidden_size), 
+                nn.ReLU()
+            )
             self.embedding_dim = config.decoder_hidden_size
         elif config.decoder_type == 'Transformer':
-            self.decoder = XcodeYtimeDecoder(self.embed_dim, config.decoder_hidden_size, 4, config.decoder_hidden_size, 4)
+            self.decoder = XcodeYtimeDecoder(
+                self.embed_dim, 
+                config.decoder_hidden_size, 
+                config.decoder_num_heads,
+                config.decoder_hidden_size, 
+                config.decoder_num_layers
+            )
             self.embedding_dim = config.decoder_hidden_size * self.TC
+        elif config.decoder_type == 'POYO':
+            self.embed_length = 1 if config.poyo_query_mode == 'single' else config.pred_length
+            self.decoder = POYO(
+                input_dim=self.embed_dim, 
+                dim=config.decoder_hidden_size, 
+                depth=config.decoder_num_layers, 
+                self_heads=config.decoder_num_heads,
+                datum_size=datum_size,
+                num_latents=config.poyo_num_latents,
+                query_length=self.embed_length,
+                T_step=self.T_step
+            )
+            self.embedding_dim = config.decoder_hidden_size
         else:
             raise NotImplementedError
         
         self.separate_projs = config.separate_projs
+        self.linear_out_size = config.pred_length
+        if config.decoder_type == 'POYO' and config.poyo_query_mode == 'multi':
+            self.linear_out_size = 1
+
         if not self.separate_projs:
-            self.proj = nn.Linear(self.embedding_dim, config.pred_length)
+            self.proj = nn.Linear(self.embedding_dim, self.linear_out_size)
         else:
-            self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, config.pred_length, init=config.decoder_proj_init) for size in datum_size])
+            self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in datum_size])
+
         self.mustd = MuStdModel(self.Tin, config.pred_length, [64])
         
-    def forward(self, x, pred_step=1):
+    def forward(self, x, pred_step=1, unit_indices=None, unit_timestamps=None):
         """
         x: list of tensors, each of shape (L, B, D)
         return: list of tensors, each of shape (pred_length, B, D)
@@ -435,18 +466,46 @@ class Decoder(nn.Module):
         else:
             out = x.reshape(x.shape[0], self.TC, self.embed_dim) # out: sum(B * D), TC, E
 
-        embed = self.decoder(out) # sum(B * D), embed
+        if isinstance(self.decoder, POYO):
+            if unit_indices is None:
+                sum_channels = 0
+                unit_indices = []
+                for b, d in zip(bsz, self.datum_size):
+                    indices = torch.arange(d, device=x.device).unsqueeze(0).repeat(b, 1).reshape(-1) # B * D
+                    unit_indices.append(indices + sum_channels)
+                    sum_channels += d
+                unit_indices = torch.cat(unit_indices, dim=0) # sum(B * D)
+            if unit_timestamps is None:
+                unit_timestamps = torch.zeros_like(unit_indices).unsqueeze(1) + torch.arange(0, self.Tin, self.T_step, device=x.device) # sum(B * D), L
+
+            input_seqlen = torch.cat([torch.full((b, ), d, device=x.device) 
+                                            for b, d in zip(bsz, self.datum_size)], dim=0)
+            session_index = torch.cat([torch.full((b, d), i, device=x.device).reshape(-1) 
+                                            for i, (b, d) in enumerate(zip(bsz, self.datum_size))], dim=0)
+
+            embed = self.decoder(
+                out,
+                unit_indices=unit_indices,
+                unit_timestamps=unit_timestamps,
+                input_seqlen=input_seqlen,
+                session_index=session_index,
+                pred_step=pred_step
+            )
+        else:
+            embed = self.decoder(out) # sum(B * D), embed
+        
         if self.normalize_seq:
             mu = x_mean + mu
             std = x_std + std
         self.mu = mu.clone().squeeze(-1)
         self.std = std.clone().squeeze(-1)
 
-        # partition embed, mu, std to a list of tensors, each of shape (B, D, embed), (B, D, 1), (B, D, 1)
-        split_size = [b * d for b, d in zip(bsz, self.datum_size)]
+        # partition embed, to a list of tensors, each of shape (B, D, embed)
+        split_size = [b * d * self.embed_length for b, d in zip(bsz, self.datum_size)]
         embed = torch.split(embed, split_size, dim=0) # [B * D, embed]
-        embed = [xx.reshape(b, d, self.embedding_dim) for xx, b, d in zip(embed, bsz, self.datum_size)]
+        embed = [xx.reshape(b, d, self.embed_length, self.embedding_dim) for xx, b, d in zip(embed, bsz, self.datum_size)]
 
+        split_size = [b * d for b, d in zip(bsz, self.datum_size)]
         mu = torch.split(mu, split_size, dim=0) # [B * D, 1]
         mu = [xx.reshape(b, d) for xx, b, d in zip(mu, bsz, self.datum_size)]
         std = torch.split(std, split_size, dim=0) # [B * D, 1]
@@ -458,7 +517,18 @@ class Decoder(nn.Module):
                 proj = self.proj[i]
             else:
                 proj = self.proj
-            pred: torch.Tensor = proj(e) # B, D, pred_length
+            
+            if e.shape[2] > 1:
+                b, d = e.shape[0], e.shape[1]
+                e = e.permute(0, 2, 1, 3)
+                e = e.reshape(-1, e.shape[2], e.shape[3]) # B * pred_length, D, embed_dim
+
+                pred: torch.Tensor = proj(e) # B * pred_length, D, 1
+                pred = pred.reshape(b, pred_step, d).permute(0, 2, 1) # B, D, pred_length
+            else:
+                pred: torch.Tensor = proj(e.squeeze(2)) # B, D, pred_length
+            assert pred.shape[2] == pred_step 
+            
             # pred = (pred - pred.mean(dim=-1, keepdims=True)) / pred.std(dim=-1, keepdims=True) # normalized
             if self.normalize_seq:
                 pred = pred * s.unsqueeze(-1) + m.unsqueeze(-1)

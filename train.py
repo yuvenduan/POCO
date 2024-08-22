@@ -50,7 +50,7 @@ def model_test(
         with torch.no_grad():
             test_data.reset()
             
-            for t_step_ in range(test_data.min_iter_len):
+            for t_step_ in range(min(test_data.min_iter_len, config.test_batch)):
                 loss_weighted, num_weighted, num_corr_weighted = 0, 0, 0
                 for i_tloader, test_iter in enumerate(test_data.data_iters):
                     mod_weight = config.mod_w[i_tloader]

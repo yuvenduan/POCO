@@ -60,6 +60,7 @@ def plot_delta_F(data, exp_name='', fig_dir='preprocess', suffix=''):
 def process_spontaneous_activity():
     exp_names = get_exp_names()
     os.makedirs(PROCESSED_DIR, exist_ok=True)
+    normalize_mode = 'max' # or 'max'
 
     brain_areas = [ 
         'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
@@ -113,18 +114,22 @@ def process_spontaneous_activity():
                     errormode='none'
                 )
 
-                valid_indices = np.ones(data_dict['M'].shape[0], dtype=bool)
-                valid_indices &= data_dict['M'].min(axis=1) > 10
-                print(f"Indices: {data_dict['M'].shape}, Valid indices: {valid_indices.sum()}")
+                if normalize_mode == 'max':
+                    valid_indices = np.ones(data_dict['M'].shape[0], dtype=bool)
+                    valid_indices &= data_dict['M'].min(axis=1) > 10
+                    print(f"Indices: {data_dict['M'].shape}, Valid indices: {valid_indices.sum()}")
 
-                # delta F / F, then normalize by max abs value, the resuling value is in [-1, 1]
+                    # delta F / F, then normalize by max abs value, the resuling value is in [-1, 1]
+                    baseline = np.median(data_dict['M'], axis=1, keepdims=True)
+                    data_dict['M'] = (data_dict['M'] - baseline) / baseline
+                    # assert np.all(np.abs(data_dict['M']) <= 1)
+                    normalized = data_dict['M'] / (np.max(np.abs(data_dict['M']), axis=1, keepdims=True) + 1e-6)
+                else:
+                    valid_indices = np.ones(data_dict['M'].shape[0], dtype=bool)
+                    mu, std = np.mean(data_dict['M'], axis=1, keepdims=True), np.std(data_dict['M'], axis=1, keepdims=True)
+                    normalized = (data_dict['M'] - mu) / (std + 1e-6)
+
                 data_dict['valid_indices'] = valid_indices
-                baseline = np.median(data_dict['M'], axis=1, keepdims=True)
-                data_dict['M'] = (data_dict['M'] - baseline) / baseline
-                # data_dict['M'] = data_dict['M'] / (np.max(np.abs(data_dict['M']), axis=1, keepdims=True) + 1e-4)
-                # assert np.all(np.abs(data_dict['M']) <= 1)
-
-                normalized = data_dict['M'] / (np.max(np.abs(data_dict['M']), axis=1, keepdims=True) + 1e-4)
                 data_dict['M'] = normalized
 
                 normalized = normalized[valid_indices]

@@ -17,7 +17,7 @@ def analyze_predictivity(config: NeuralPredictionConfig):
 
         datum_size = [x.shape[1] for x in mse]
         pred_step = config.pred_length
-        baseline_loss_dict = get_baseline_performance(config, phase, details=True)
+        baseline_loss_dict = get_baseline_performance(config, phase)
     
         # calculate the mean prediction performance for different PCs
         if config.pc_dim is not None:

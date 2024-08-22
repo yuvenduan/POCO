@@ -13,8 +13,8 @@ DATA_DIR = os.path.join(ROOT_DIR, 'data')
 RAW_DIR = os.path.join(DATA_DIR, 'raw')
 VISUAL_RAW_DIR = os.path.join(DATA_DIR, 'raw_visual')
 RAW_DATA_SUFFIX = '_CNMF_compressed.h5'
-PROCESSED_DIR = os.path.join(DATA_DIR, 'processed')
-VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual')
+PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_dF')
+VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual_dF')
 SIM_DIR = osp.join(DATA_DIR, 'simulations')
 
 # device to run algorithm on
