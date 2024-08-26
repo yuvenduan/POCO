@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import os
 import analysis.plots as plots
+import numpy as np
 
 from configs.config_global import DEVICE
 from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
@@ -175,7 +176,7 @@ class NeuralPrediction(TaskFunction):
         # compute mean loss for the prediction part
         for phase in ['train', 'val']:
 
-            if self.pred_num[phase] == 0:
+            if np.sum(self.pred_num[phase][0]) == 0:
                 continue
 
             if len(self.recon_loss_list[phase]) > 0:
@@ -231,7 +232,6 @@ class NeuralPrediction(TaskFunction):
                         f'best_dim{pc}',
                         len(preds[0]) - self.pred_step
                     )
-
 
         if is_best:
             for phase in ['val']:

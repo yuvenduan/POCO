@@ -23,7 +23,13 @@ def train_from_path(path):
     config = load_config(path)
     model_train(config)
 
-def model_test(
+def eval_from_path(path):
+    """Evaluate from a path with a config file in it."""
+    logging.basicConfig(level=LOG_LEVEL)
+    config = load_config(path)
+    model_eval(config)
+
+def evaluate_performance(
     net: nn.Module, 
     config: SupervisedLearningBaseConfig, 
     test_data: DatasetIters, 
@@ -32,7 +38,8 @@ def model_test(
     testloss_list: list = [], 
     i_b: int = 0,
     train_loss: float = 0,
-    phase: str = 'val'
+    phase: str = 'val',
+    testing: bool = False
 ):
     """
     Test the model. Print the test loss and accuracy through logger. Save the model if it is the best model.
@@ -89,13 +96,16 @@ def model_test(
     
     logger.log_tabular('TestLoss', avg_testloss)
     testloss_list.append(avg_testloss)
-    # save the model with best testing loss
 
-    best = False
-    if avg_testloss <= min(testloss_list):
+    # save the model with best testing loss
+    if not testing:
+        best = False
+        if avg_testloss <= min(testloss_list):
+            best = True
+            torch.save(net.state_dict(),
+                        osp.join(config.save_path, 'net_best.pth'))
+    else:
         best = True
-        torch.save(net.state_dict(),
-                    osp.join(config.save_path, 'net_best.pth'))
 
     if config.perform_val:
         if config.print_mode == 'accuracy':
@@ -168,7 +178,7 @@ def model_train(config: SupervisedLearningBaseConfig):
             scheduler = lrs.CosineAnnealingLR(
                 optimizer, 
                 T_max=config.max_batch // config.log_every + 1,
-                eta_min=config.lr / 10
+                eta_min=config.lr / 20
             )
         else:
             raise NotImplementedError('scheduler_type must be specified')
@@ -215,7 +225,7 @@ def model_train(config: SupervisedLearningBaseConfig):
                 logger.log_tabular('DataNum', (i_b + 1) * config.batch_size * train_data.num_datasets)
                 logger.log_tabular('TrainLoss', train_loss / config.log_every)
 
-                model_test(net, config, test_data, task_func, logger, testloss_list, i_b + 1, train_loss / config.log_every)
+                evaluate_performance(net, config, test_data, task_func, logger, testloss_list, i_b + 1, train_loss / config.log_every)
                 i_log += 1
                 logger.dump_tabular()
                 train_loss = 0
@@ -232,15 +242,21 @@ def model_train(config: SupervisedLearningBaseConfig):
             break
 
     task_func.after_training_callback(config, net)
-    if config.perform_test:
-        np.random.seed(NP_SEED)
-        torch.manual_seed(TCH_SEED)
-        random.seed(config.seed)
-
-        test_data = DatasetIters(config, 'test')
-        logger = Logger(output_dir=config.save_path, output_fname='test.txt', exp_name=config.experiment_name)
-
-        model_test(net, config, test_data, task_func, logger)
-        logger.dump_tabular()
-
     log_complete(config.save_path, start_time)
+
+    if config.perform_test:
+        model_eval(config)
+
+def model_eval(config: SupervisedLearningBaseConfig):
+    np.random.seed(NP_SEED)
+    torch.manual_seed(TCH_SEED)
+    random.seed(config.seed)
+
+    test_data = DatasetIters(config, 'test')
+    net = model_init(config, test_data.datum_sizes[0])
+    task_func = task_init(config, test_data.datum_sizes[0])
+    net.load_state_dict(torch.load(osp.join(config.save_path, 'net_best.pth'), weights_only=True))
+
+    logger = Logger(output_dir=config.save_path, output_fname='test.txt', exp_name=config.experiment_name)
+    evaluate_performance(net, config, test_data, task_func, logger, testing=True)
+    logger.dump_tabular()

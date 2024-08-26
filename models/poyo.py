@@ -29,7 +29,8 @@ class POYO(nn.Module):
         use_memory_efficient_attn=True,
         datum_size=None,
         query_length=1,
-        T_step=1
+        T_step=1,
+        unit_dropout=0.0
     ):
         super().__init__()
 
@@ -39,6 +40,7 @@ class POYO(nn.Module):
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
         self.num_latents = num_latents
         self.query_length = query_length
+        self.unit_dropout = unit_dropout
 
         self.perceiver_io = PerceiverRotary(
             dim=dim,
@@ -72,10 +74,24 @@ class POYO(nn.Module):
         L = x.shape[1]
         B = input_seqlen.shape[0]
         T = L * self.T_step
-        unit_embedding = self.unit_emb(unit_indices) # B * D, dim
-        inputs = unit_embedding.unsqueeze(1) + self.input_proj(x)
-        inputs = inputs.reshape(-1, inputs.shape[2])
+        unit_embedding = self.unit_emb(unit_indices) # sum(B * D), dim
+        inputs = unit_embedding.unsqueeze(1) + self.input_proj(x) # sum(B * D), L, dim
+
+        if self.training and self.unit_dropout > 0.0 and np.random.rand() < 0.8:
+            mask = torch.rand(inputs.shape[0], device=x.device) < 1 - self.unit_dropout
+            inputs = inputs[mask]
+            unit_timestamps = unit_timestamps[mask]
+
+            # compute adjusted input_seqlen
+            new_input_seqlen = torch.zeros(B, device=x.device, dtype=torch.long)
+            pos = 0
+            for i in range(B):
+                new_input_seqlen[i] = torch.sum(mask[pos: pos + input_seqlen[i]])
+                pos += input_seqlen[i]
+            input_seqlen = new_input_seqlen
+
         unit_timestamps = unit_timestamps.reshape(-1)
+        inputs = inputs.reshape(-1, inputs.shape[2])
 
         # latents
         latent_index = torch.arange(self.num_latents, device=x.device)

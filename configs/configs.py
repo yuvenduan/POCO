@@ -72,7 +72,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # scheduler
         self.use_lr_scheduler = False
-        self.scheduler_type = None
+        self.scheduler_type = 'CosineAnnealing'
 
         # training
         self.num_ep = 100000
@@ -176,6 +176,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.poyo_query_mode = 'single' # or 'multi'
         self.decoder_num_layers = 4
         self.decoder_num_heads = 8
+        self.poyo_unit_dropout = 0
 
         self.do_analysis = False
 

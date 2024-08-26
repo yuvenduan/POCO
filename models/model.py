@@ -419,7 +419,8 @@ class Decoder(nn.Module):
             )
             self.embedding_dim = config.decoder_hidden_size * self.TC
         elif config.decoder_type == 'POYO':
-            self.embed_length = 1 if config.poyo_query_mode == 'single' else config.pred_length
+            poyo_query_mode = config.poyo_query_mode if hasattr(config, 'poyo_query_mode') else 'single'
+            self.embed_length = 1 if poyo_query_mode == 'single' else config.pred_length
             self.decoder = POYO(
                 input_dim=self.embed_dim, 
                 dim=config.decoder_hidden_size, 
@@ -428,7 +429,8 @@ class Decoder(nn.Module):
                 datum_size=datum_size,
                 num_latents=config.poyo_num_latents,
                 query_length=self.embed_length,
-                T_step=self.T_step
+                T_step=self.T_step,
+                unit_dropout=config.poyo_unit_dropout if hasattr(config, 'poyo_unit_dropout') else 0,
             )
             self.embedding_dim = config.decoder_hidden_size
         else:
@@ -436,7 +438,7 @@ class Decoder(nn.Module):
         
         self.separate_projs = config.separate_projs
         self.linear_out_size = config.pred_length
-        if config.decoder_type == 'POYO' and config.poyo_query_mode == 'multi':
+        if config.decoder_type == 'POYO' and poyo_query_mode == 'multi':
             self.linear_out_size = 1
 
         if not self.separate_projs:

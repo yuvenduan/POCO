@@ -75,7 +75,7 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
 def get_pretrained_model(model_path, config_path, datum_size=None, eval_mode=True):
     config = load_config(config_path)
     model = model_init(config, datum_size)
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, weights_only=True))
     if eval_mode:
         model.eval()
         model.requires_grad_(False)

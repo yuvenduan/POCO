@@ -71,6 +71,7 @@ def save_config(config, save_path, also_save_as_text=True, show_message=True):
     """
     Save config.
     adapted from https://github.com/gyyang/olfaction_evolution
+    return True if the save path is new, False if training is already done
     """
     if os.path.exists(save_path):
         file_path = os.path.join(save_path, 'progress.txt')

@@ -64,6 +64,7 @@ try:
     has_cuda_extension = True
     log.info("CUDA extension for structured kernels (Cauchy and Vandermonde multiplication) found.")
 except:
+    pass
     log.warning(
         "CUDA extension for structured kernels (Cauchy and Vandermonde multiplication) not found. Install by going to extensions/kernels/ and running `python setup.py install`, for improved speed and memory efficiency. Note that the kernel changed for state-spaces 4.0 and must be recompiled."
     )
@@ -162,6 +163,7 @@ try:
 except ImportError:
     has_pykeops = False
     if not has_cuda_extension:
+        pass
         log.warning(
             "Falling back on slow Cauchy and Vandermonde kernel. Install at least one of pykeops or the CUDA extension for better speed and memory efficiency."
         )

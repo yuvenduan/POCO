@@ -8,7 +8,7 @@ import configs.experiments as experiments
 import configs.exp_analysis as exp_analysis
 import torch
 from utils.config_utils import save_config, configs_dict_unpack
-from train import model_train
+from train import model_train, model_eval
 from configs.config_global import LOG_LEVEL, ROOT_DIR
 from configs.configs import BaseConfig
 
@@ -20,7 +20,7 @@ def train_cmd(config_):
 
 def eval_cmd(eval_save_path):
     arg = '\'' + eval_save_path + '\''
-    command = r'''python -c "import model_evaluation; model_evaluation.evaluate_from_path(''' + arg + ''')"'''
+    command = r'''python -c "import train; train.eval_from_path(''' + arg + ''')"'''
     return command
 
 
@@ -91,7 +91,7 @@ def get_idle_gpu(subprocess_list):
                 return idx
         time.sleep(10)
 
-def train_experiment(experiment, on_cluster, on_server, partition, account, overwrite=False):
+def train_experiment(experiment, on_cluster, on_server, partition, account, overwrite=False, eval=False):
     """Train model across platforms given experiment name.
     adapted from https://github.com/gyyang/olfaction_evolution
     Args:
@@ -104,7 +104,6 @@ def train_experiment(experiment, on_cluster, on_server, partition, account, over
         return_ids: list, a list of job ids that are last in the dependency sequence
             if not using cluster, return is an empty list
     """
-    print('Training {:s} experiment'.format(experiment))
     if experiment in dir(experiments):
         # Get list of configurations from experiment function
         exp_configs = getattr(experiments, experiment)()
@@ -118,21 +117,27 @@ def train_experiment(experiment, on_cluster, on_server, partition, account, over
     assert isinstance(exp_configs[0], BaseConfig), \
         'exp_configs should be list of configs'
 
-    count = 0
-    for config in exp_configs:
-        config.overwrite = overwrite
-        if save_config(config, config.save_path):
-            count += 1
+    if not eval:
+        count = 0
+        for config in exp_configs:
+            config.overwrite = overwrite
+            if save_config(config, config.save_path):
+                count += 1
 
-    # prompt if user wants to continue
-    if input(f'Continue running {count} jobs? (y/n)') != 'y':
-        return return_ids
+        # prompt if user wants to continue
+        if input(f'Continue running {count} jobs? (y/n)') != 'y':
+            return return_ids
+    else:
+        for config in exp_configs:
+            config.overwrite = False
+            if save_config(config, config.save_path, show_message=False):
+                logging.info(f'Training not done at {config.save_path}')
 
     if on_cluster:
         for config in exp_configs:
-            if not save_config(config, config.save_path, show_message=False):
+            if not save_config(config, config.save_path, show_message=False) and not eval:
                 continue
-            python_cmd = train_cmd(config)
+            python_cmd = train_cmd(config) if not eval else eval_cmd(config.save_path)
             job_n = config.experiment_name + '_' + config.model_name
             cp_process = subprocess.run(['sbatch', get_jobfile(python_cmd,
                                                                 job_n,
@@ -152,14 +157,14 @@ def train_experiment(experiment, on_cluster, on_server, partition, account, over
 
     elif on_server:
         num_gpus = torch.cuda.device_count()
-        print(f"Training on {num_gpus} gpu(s) ...", flush=True)
+        print(f"Running on {num_gpus} gpu(s) ...", flush=True)
         subprocesses = [None for _ in range(num_gpus)]
 
         for config in exp_configs:
-            if not save_config(config, config.save_path, show_message=False):
+            if not save_config(config, config.save_path, show_message=False) and not eval:
                 continue
             id = get_idle_gpu(subprocesses)
-            cmd = f'export CUDA_VISIBLE_DEVICES={id}' + '\n' + train_cmd(config)
+            cmd = f'export CUDA_VISIBLE_DEVICES={id}' + '\n' + (train_cmd(config) if not eval else eval_cmd(config.save_path))
             out_path = os.path.join(config.save_path, 'out.txt')
             out_file = open(out_path, mode='w')
             subprocesses[id] = subprocess.Popen(cmd, stdout=out_file, stderr=out_file, shell=True)
@@ -173,8 +178,8 @@ def train_experiment(experiment, on_cluster, on_server, partition, account, over
 
     else:
         for config in exp_configs:
-            if save_config(config, config.save_path):
-                model_train(config)
+            if eval or save_config(config, config.save_path, show_message=False):
+                model_train(config) if not eval else model_eval(config)
 
     return return_ids
 
@@ -209,6 +214,7 @@ def analyze_experiment(experiment, prev_ids, on_cluster, partition, account):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-t', '--train', nargs='+', help='Train experiments', default=[])
+    parser.add_argument('-e', '--eval', nargs='+', help='Evaluate experiments', default=[])
     parser.add_argument('-a', '--analyze', nargs='+', help='Analyze experiments', default=[])
     parser.add_argument('-c', '--cluster', action='store_true', help='Use batch submission on Slurm cluster')
     parser.add_argument('-s', '--server', action='store_true', help='Run experiments on a Linux server with multiple GPUs')
@@ -219,6 +225,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     experiments2train = args.train
     experiments2analyze = args.analyze
+    experiments2eval = args.eval
     use_cluster = args.cluster
     use_server = args.server
     assert not (use_cluster and use_server), "Either use cluster or directly run on a server"
@@ -233,7 +240,13 @@ if __name__ == '__main__':
             exp_ids = train_experiment(exp, on_cluster=use_cluster, on_server=use_server, partition=args.partition, account=args.acc, overwrite=args.overwrite)
             train_ids += exp_ids
 
+    eval_ids = []
+    if experiments2eval:
+        for exp in experiments2eval:
+            exp_ids = train_experiment(exp, on_cluster=use_cluster, on_server=use_server, partition=args.partition, account=args.acc, eval=True)
+            eval_ids += exp_ids
+
     if experiments2analyze:
         for exp in experiments2analyze:
-            analyze_experiment(exp, prev_ids=train_ids,
+            analyze_experiment(exp, prev_ids=train_ids + eval_ids,
                                on_cluster=use_cluster, partition=args.partition, account=args.acc)
