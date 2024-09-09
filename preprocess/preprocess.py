@@ -8,16 +8,19 @@ import numpy as np
 import scipy.io as sio
 import analysis.plots as plots
 
-from configs.config_global import RAW_DIR, EXP_TYPES, PROCESSED_DIR, RAW_DATA_SUFFIX, VISUAL_PROCESSED_DIR, VISUAL_RAW_DIR
-from utils.data_utils import get_exp_names, get_subject_ids
+from configs.config_global import \
+    RAW_DIR, EXP_TYPES, PROCESSED_DIR, RAW_DATA_SUFFIX, \
+    VISUAL_PROCESSED_DIR, VISUAL_RAW_DIR, STIM_RAW_DIR, STIM_PROCESSED_DIR
+from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
 
 def run_pca(data, exp_name='', n_components=2048, fig_dir='preprocess'):
     """
     data: n_neurons * T
     return: n_components * T
     """
-    n_components = min(n_components, data.shape[1])
+    n_components = min(n_components, data.shape[1], data.shape[0])
     pca = PCA(n_components=n_components, svd_solver='full')
     act = pca.fit_transform(data.T)
     print('EV 10:', pca.explained_variance_ratio_[:10])
@@ -38,6 +41,24 @@ def run_pca(data, exp_name='', n_components=2048, fig_dir='preprocess'):
     print('')
     return act.T
 
+def get_clustered_data(data, n_clusters=500, seed=0):
+    """
+    Do KMeans clustering on correlation matrix
+    data: n_neurons * T
+    return: n_clusters * T
+    """
+    corr_matrix = np.corrcoef(data)
+    print("Correlation Matrix Shape: ", corr_matrix.shape)
+    corr_matrix[np.isnan(corr_matrix)] = 0
+    kmeans = KMeans(n_clusters=n_clusters, random_state=seed).fit(corr_matrix)
+    labels = kmeans.labels_
+    
+    # compute the mean of time traces in each cluster
+    clustered_data = np.zeros((n_clusters, data.shape[1]))
+    for i in range(n_clusters):
+        clustered_data[i] = data[labels == i].mean(axis=0)
+    return clustered_data
+
 def plot_delta_F(data, exp_name='', fig_dir='preprocess', suffix=''):
     """
     Plot the difference between adjacent frames
@@ -57,10 +78,86 @@ def plot_delta_F(data, exp_name='', fig_dir='preprocess', suffix=''):
         legend=False,
     )
 
+def process_data_matrix(
+    data, fig_dir, 
+    roi_indices=None, 
+    divide_baseline=False, 
+    normalize_mode='zscore', 
+    n_clusers=[500], 
+    plot_max_min=False, 
+    exp_name=''
+):
+    """
+    Process the data matrix
+
+    :param data: n_neurons * T
+    :param roi_indices: n_neurons or None, represent the valid ROIs to use
+    :param divide_baseline: whether to calculate delta F / F
+    :param normalize_mode: 'none', 'zscore', 'max'
+    :param n_clusters: list of number of clusters to use
+    return: dict with keys 'valid_indices', 'M', 'PC', 'FC_{n}', where n is in n_clusters
+    """
+    data_dict = {}
+    n, T = data.shape
+
+    if roi_indices is None:
+        roi_indices = np.ones(n, dtype=bool)
+    
+    if divide_baseline:
+        baseline = np.median(data, axis=1, keepdims=True)
+        roi_indices &= baseline.reshape(-1) > 1
+        data = (data - baseline) / (baseline + 1e-6)
+
+    if plot_max_min:
+        # min F
+        plots.distribution_plot(
+            [[data_dict['M'].min(axis=1)], [data_dict['M'].min(axis=1)[roi_indices]]],
+            ['All ROIs', 'Filtered ROIs'],
+            left=-100, right=100, 
+            interval=10,
+            x_label='Min F', y_label='Frequency',
+            plot_dir='preprocess',
+            plot_name=f'{exp_name}_min_F',
+            errormode='none'
+        )
+
+        # max F
+        plots.distribution_plot(
+            [[data_dict['M'].max(axis=1)], [data_dict['M'].max(axis=1)[roi_indices]]],
+            ['All ROIs', 'Filtered ROIs'],
+            left=-50, right=2000, 
+            interval=10,
+            x_label='Max F', y_label='Frequency',
+            plot_dir='preprocess',
+            plot_name=f'{exp_name}_max_F',
+            errormode='none'
+        )
+
+    if normalize_mode == 'zscore':
+        mu, std = np.mean(data, axis=1, keepdims=True), np.std(data, axis=1, keepdims=True)
+        normalized = (data - mu) / (std + 1e-6)
+    elif normalize_mode == 'max':
+        normalized = data / (np.max(np.abs(data), axis=1, keepdims=True) + 1e-6)
+    else:
+        normalized = data
+
+    print(f"Data shape: {data.shape}, Valid indices: {roi_indices.sum()}")
+    data_dict['valid_indices'] = roi_indices
+    data_dict['M'] = normalized
+    
+    normalized = normalized[roi_indices]
+    plot_delta_F(normalized, fig_dir=fig_dir)
+    data_dict['PC'] = run_pca(normalized, fig_dir=fig_dir)
+    plot_delta_F(data_dict['PC'], fig_dir=fig_dir, suffix='_PC')
+
+    for n_cluster in n_clusers:
+        data_dict[f'FC_{n_cluster}'] = get_clustered_data(normalized, n_cluster)
+    return data_dict
+
 def process_spontaneous_activity():
     exp_names = get_exp_names()
     os.makedirs(PROCESSED_DIR, exist_ok=True)
-    normalize_mode = 'max' # or 'max'
+    normalize_mode = 'max'
 
     brain_areas = [ 
         'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
@@ -91,53 +188,52 @@ def process_spontaneous_activity():
                     assert area in data_dict, f"Area {area} not found in data"
                     roi_indices |= data_dict[area]
 
-                plots.distribution_plot(
-                    [[data_dict['M'].min(axis=1)], [data_dict['M'].min(axis=1)[roi_indices]]],
-                    ['All ROIs', 'Filtered ROIs'],
-                    left=-100, right=100, 
-                    interval=10,
-                    x_label='Min F', y_label='Frequency',
-                    plot_dir='preprocess',
-                    plot_name=f'{exp_name}_min_F',
-                    errormode='none'
+                return_dict = process_data_matrix(
+                    data_dict['M'], 
+                    fig_dir='preprocess',
+                    roi_indices=None,
+                    divide_baseline=True,
+                    normalize_mode=normalize_mode,
+                    n_clusers=[100, 500],
+                    exp_name=exp_name
                 )
-
-                # max F
-                plots.distribution_plot(
-                    [[data_dict['M'].max(axis=1)], [data_dict['M'].max(axis=1)[roi_indices]]],
-                    ['All ROIs', 'Filtered ROIs'],
-                    left=-50, right=2000, 
-                    interval=10,
-                    x_label='Max F', y_label='Frequency',
-                    plot_dir='preprocess',
-                    plot_name=f'{exp_name}_max_F',
-                    errormode='none'
-                )
-
-                if normalize_mode == 'max':
-                    valid_indices = np.ones(data_dict['M'].shape[0], dtype=bool)
-                    valid_indices &= data_dict['M'].min(axis=1) > 10
-                    print(f"Indices: {data_dict['M'].shape}, Valid indices: {valid_indices.sum()}")
-
-                    # delta F / F, then normalize by max abs value, the resuling value is in [-1, 1]
-                    baseline = np.median(data_dict['M'], axis=1, keepdims=True)
-                    data_dict['M'] = (data_dict['M'] - baseline) / baseline
-                    # assert np.all(np.abs(data_dict['M']) <= 1)
-                    normalized = data_dict['M'] / (np.max(np.abs(data_dict['M']), axis=1, keepdims=True) + 1e-6)
-                else:
-                    valid_indices = np.ones(data_dict['M'].shape[0], dtype=bool)
-                    mu, std = np.mean(data_dict['M'], axis=1, keepdims=True), np.std(data_dict['M'], axis=1, keepdims=True)
-                    normalized = (data_dict['M'] - mu) / (std + 1e-6)
-
-                data_dict['valid_indices'] = valid_indices
-                data_dict['M'] = normalized
-
-                normalized = normalized[valid_indices]
-                plot_delta_F(normalized, exp_name=exp_name)
-                data_dict['PC'] = run_pca(normalized, exp_name=exp_name)
-                plot_delta_F(data_dict['PC'], exp_name=exp_name, suffix='_PC')
+                data_dict.update(return_dict)
                 
                 np.savez(out_filename, **data_dict)
+
+def process_stim_activity():
+    exp_names = get_stim_exp_names()
+    os.makedirs(STIM_PROCESSED_DIR, exist_ok=True)
+
+    brain_areas = [
+        'in_l_LHb', 'in_l_MHb', 'in_l_cerebellum', 'in_l_di', 'in_l_dthal', 'in_l_hind', 'in_l_meso', 'in_l_raphe', 'in_l_tectum', 'in_l_tel', 'in_l_vthal', 
+        'in_r_LHb', 'in_r_MHb', 'in_r_cerebellum', 'in_r_di', 'in_r_dthal', 'in_r_hind', 'in_r_meso', 'in_r_raphe', 'in_r_tectum', 'in_r_tel', 'in_r_vthal'
+    ]
+
+    stim_regions = ['forebrain', 'lHb', 'rHb']
+
+    for exp_type in ['control', 'stim']:
+        for exp_name in exp_names[exp_type]:
+
+            filename = os.path.join(STIM_RAW_DIR, f'hbstim_{exp_name}_cnmf_.h5')
+            out_filename = os.path.join(STIM_PROCESSED_DIR, exp_name)
+
+            with h5py.File(filename, "r") as f:
+                print("Keys: %s" % f.keys())
+
+                data_dict = {}
+                for key in f.keys():
+                    data_dict[key] = np.array(f[key])
+
+                print(data_dict['M'].shape, [data_dict[f'stim_ndx_{region}'].shape for region in stim_regions])
+                
+                # show median, mean, max, min of 10 random ROIs
+                for i in range(10):
+                    roi = np.random.randint(data_dict['M'].shape[0])
+                    print(f"ROI {roi}: {data_dict['M'][roi].mean()}, {data_dict['M'][roi].std()}, {data_dict['M'][roi].max()}, {data_dict['M'][roi].min()}")
+
+                for region in stim_regions:
+                    print(f"Region {region}: {data_dict[f'stim_ndx_{region}']}")
 
 def process_visual_activity():
     os.makedirs(VISUAL_PROCESSED_DIR, exist_ok=True)

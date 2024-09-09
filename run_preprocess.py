@@ -1,5 +1,5 @@
 from preprocess.generate_sim import save_sim_activity
-from preprocess.preprocess import process_spontaneous_activity, process_visual_activity
+from preprocess.preprocess import process_spontaneous_activity, process_visual_activity, process_stim_activity
 
 
 if __name__ == '__main__':
@@ -10,5 +10,7 @@ if __name__ == '__main__':
     # load and process spontaneous fish activity
     process_spontaneous_activity()
 
+    # process_stim_activity()
+
     # load and process fish activity with visual stimulus
-    process_visual_activity()
+    # process_visual_activity()

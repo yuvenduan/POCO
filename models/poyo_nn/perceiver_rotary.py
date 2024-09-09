@@ -42,10 +42,11 @@ class PerceiverRotary(nn.Module):
         lin_dropout=0.4,
         atn_dropout=0.0,
         use_memory_efficient_attn=True,
+        t_max=120
     ):
         super().__init__()
 
-        self.rotary_emb = RotaryEmbedding(dim_head)
+        self.rotary_emb = RotaryEmbedding(dim_head, t_min=t_max / 1000, t_max=t_max)
 
         self.dropout = nn.Dropout(p=lin_dropout)
 
@@ -113,6 +114,7 @@ class PerceiverRotary(nn.Module):
         input_seqlen=None, # None or (B,)
         latent_seqlen=None, # None or (B,)
         output_query_seqlen=None, # None or (B,)
+        output_latent=False
     ) -> Union[
         TensorType["batch", "*nqueries", "dim"], # if padded
         TensorType["ntotal_queries", "dim"], # if chained
@@ -187,7 +189,9 @@ class PerceiverRotary(nn.Module):
             )
             latents = latents + self.dropout(self_ff(latents))
 
-        if output_queries is None:
+        if output_latent:
+            if latents.dim() == 2:
+                latents = latents.reshape(latent_seqlen.shape[0], -1, latents.shape[1])
             return latents
 
         # decode

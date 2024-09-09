@@ -11,10 +11,12 @@ ROOT_DIR = osp.dirname(osp.dirname(osp.abspath(__file__)))
 FIG_DIR = osp.join(ROOT_DIR, 'figures')
 DATA_DIR = os.path.join(ROOT_DIR, 'data')
 RAW_DIR = os.path.join(DATA_DIR, 'raw')
+STIM_RAW_DIR = os.path.join(DATA_DIR, 'raw_stim')
 VISUAL_RAW_DIR = os.path.join(DATA_DIR, 'raw_visual')
 RAW_DATA_SUFFIX = '_CNMF_compressed.h5'
 PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zscored')
 VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual_zscored')
+STIM_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_stim_zscored')
 SIM_DIR = osp.join(DATA_DIR, 'simulations')
 
 # device to run algorithm on

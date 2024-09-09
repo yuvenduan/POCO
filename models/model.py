@@ -10,7 +10,7 @@ import os
 from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 
 from models.model_utils import get_rnn, get_pretrained_model, get_rnn_from_config
-from models.TOTEM.models.decode import MuStdModel, XcodeYtimeDecoder
+from models.TOTEM.models.decode import XcodeYtimeDecoder
 from models.poyo import POYO
 from configs.config_global import DEVICE
 
@@ -292,7 +292,7 @@ class MultiFishSeqVAE(nn.Module):
 
 class BatchedLinear(nn.Module):
 
-    def __init__(self, n_channels, in_size, out_size, bias=False, init='one_hot'):
+    def __init__(self, n_channels, in_size, out_size, bias=False, init='fan_in'):
         # weight: n * out_size * in_size
         # input: batch * n * in_size -> n * in_size * batch
         # out: n * out_size * batch -> batch * n * out_size
@@ -304,11 +304,11 @@ class BatchedLinear(nn.Module):
         elif init == 'fan_in':
             bound = 1 / math.sqrt(in_size)
             nn.init.uniform_(self.weight, -bound, bound)
-            self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
+            # self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
         elif init == 'fan_out':
             bound = 1 / math.sqrt(out_size)
             nn.init.uniform_(self.weight, -bound, bound)
-            self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
+            # self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
         elif init == 'zero':
             nn.init.zeros_(self.weight)
         else:
@@ -370,6 +370,47 @@ class Linear(nn.Module):
     def set_mode(self, mode):
         pass
 
+class MuStdModel(nn.Module):
+    def __init__(self, Tin, hidden_dim=64, datum_size=None, separate_projs=False):
+        super(MuStdModel, self).__init__()
+
+        self.linear = nn.Linear(Tin + 2, hidden_dim)
+        if not separate_projs:
+            self.proj = nn.Linear(hidden_dim, 2)
+        else:
+            self.proj = nn.ModuleList([BatchedLinear(size, hidden_dim, 2) for size in datum_size])
+        self.separate_projs = separate_projs
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        """Initiate parameters in the transformer model."""
+        for p in self.parameters():
+            if p.dim() > 1:
+                # nn.init.xavier_uniform_(p)
+                nn.init.zeros_(p)
+
+    def forward(self, x_list: torch.Tensor) -> torch.Tensor:
+        """
+        x: list of tensors, each of shape (L, B, D)
+        return: a tensor of shape (sum(B * D), 2), representing the predicted mean and std
+        """
+        results = []
+        for i, x in enumerate(x_list):
+            if x.size(1) == 0:
+                results.append(torch.zeros((0, 2), device=x.device))
+                continue
+            mean = torch.mean(x, dim=0, keepdim=True)
+            std = torch.sqrt(torch.var(x, dim=0, keepdim=True, unbiased=False) + 1e-5)
+            x = torch.cat((x, mean, std), dim=0) # L + 2, B, D
+            x = x.permute(1, 2, 0) # B, D, L + 2
+            x = self.linear(x)
+            x = F.relu(x)
+            proj = self.proj if not self.separate_projs else self.proj[i]
+            x = proj(x) # B, D, 2
+            results.append(x.reshape(-1, 2))
+        return torch.cat(results, dim=0)
+
 class Decoder(nn.Module):
     """
     Decoder based on pre-trained features
@@ -379,24 +420,36 @@ class Decoder(nn.Module):
         super().__init__()
 
         self.Tin = config.seq_length - config.pred_length
-        if config.encoder_dir is not None:
+        if config.encoder_type == 'vqvae':
+            assert config.encoder_dir is not None, "Pre-trained encoder dir must be provided for vqvae"
             model_path = os.path.join(config.encoder_dir, config.encoder_state_dict_file)
             self.encoder = get_pretrained_model(model_path, config.encoder_dir, datum_size)
             self.TC = self.Tin // self.encoder.compression_factor
+            self.encoder_type = 'vqvae'
             self.embed_dim = self.encoder.embedding_dim
+        elif config.encoder_type == 'cnn':
+            self.encoder = nn.Sequential(nn.Conv1d(1, config.conv_channels, config.kernel_size, config.conv_stride), nn.ReLU())
+            self.TC = (self.Tin - config.kernel_size - 1) // config.conv_stride + 1
+            self.encoder_type = 'cnn'
+            self.embed_dim = config.conv_channels
         else:
             self.encoder = None
             self.TC = self.Tin // config.compression_factor
+            self.encoder_type = 'none'
             self.embed_dim = config.compression_factor
         self.T_step = self.Tin // self.TC
-        
+
+        if config.population_token:
+            self.population_projs = nn.ModuleList([
+                nn.Sequential(nn.Linear(size * self.embed_dim, config.population_token_dim), nn.ReLU()) 
+            for size in datum_size])
+            self.pre_embed_dim = self.embed_dim
+            self.embed_dim = config.population_token_dim
+
         self.datum_size = datum_size
-        if config.mu_std_loss_coef is None:
-            self.mu_std_loss_coef = 0
-            self.normalize_seq = False
-        else:
-            self.mu_std_loss_coef = config.mu_std_loss_coef
-            self.normalize_seq = True
+        self.mu_std_loss_coef = config.mu_std_loss_coef
+        self.normalize_input = config.normalize_input
+        self.mu_std_module_mode = config.mu_std_module_mode
         self.embed_length = 1
 
         if config.decoder_type == 'Linear':
@@ -419,7 +472,7 @@ class Decoder(nn.Module):
             )
             self.embedding_dim = config.decoder_hidden_size * self.TC
         elif config.decoder_type == 'POYO':
-            poyo_query_mode = config.poyo_query_mode if hasattr(config, 'poyo_query_mode') else 'single'
+            poyo_query_mode = config.poyo_query_mode
             self.embed_length = 1 if poyo_query_mode == 'single' else config.pred_length
             self.decoder = POYO(
                 input_dim=self.embed_dim, 
@@ -430,9 +483,14 @@ class Decoder(nn.Module):
                 num_latents=config.poyo_num_latents,
                 query_length=self.embed_length,
                 T_step=self.T_step,
-                unit_dropout=config.poyo_unit_dropout if hasattr(config, 'poyo_unit_dropout') else 0,
+                unit_dropout=config.poyo_unit_dropout,
+                output_latent=config.poyo_output_mode == 'latent',
+                t_max=config.rotary_attention_tmax
             )
-            self.embedding_dim = config.decoder_hidden_size
+            if config.poyo_output_mode == 'latent':
+                self.embedding_dim = config.poyo_num_latents * config.decoder_hidden_size
+            else:
+                self.embedding_dim = config.decoder_hidden_size
         else:
             raise NotImplementedError
         
@@ -446,27 +504,48 @@ class Decoder(nn.Module):
         else:
             self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in datum_size])
 
-        self.mustd = MuStdModel(self.Tin, config.pred_length, [64])
+        self.mustd = MuStdModel(self.Tin, datum_size=datum_size, separate_projs=config.mu_std_separate_projs)
         
     def forward(self, x, pred_step=1, unit_indices=None, unit_timestamps=None):
         """
         x: list of tensors, each of shape (L, B, D)
         return: list of tensors, each of shape (pred_length, B, D)
         """
+        # TODO: delete embed length and population token, if they don't work
+
         bsz = [xx.size(1) for xx in x]
         L = x[0].size(0)
-        x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
 
         mu, std = self.mustd(x).chunk(2, dim=1)
-        if self.normalize_seq:
-            x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
+        x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
+       
+        x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
+
+        if self.normalize_input:
             x = (x - x_mean) / (x_std + 1e-6)
 
-        if self.encoder is not None:
+        if self.encoder_type == 'vqvae':
             with torch.no_grad():
                 out = self.encoder.encode(x) # out: sum(B * D), TC, E
+        elif self.encoder_type == 'cnn':
+            x = x.unsqueeze(1)
+            out = self.encoder(x) # out: sum(B * D), C, TC
+            out = out.permute(0, 2, 1) # out: sum(B * D), TC, C
+        elif self.encoder_type == 'none':
+            out = x.reshape(x.shape[0], self.TC, L // self.TC) # out: sum(B * D), TC, E
         else:
-            out = x.reshape(x.shape[0], self.TC, self.embed_dim) # out: sum(B * D), TC, E
+            raise ValueError(f"Unknown encoder type {self.encoder_type}")
+        
+        if hasattr(self, 'population_projs'):
+            split_size = [b * d for b, d in zip(bsz, self.datum_size)]
+            E = out.shape[-1]
+            out = torch.split(out, split_size, dim=0) # [B * D, TC, E]
+            out = [x.reshape(b, d, self.TC, E).permute(0, 2, 1, 3).reshape(b, self.TC, d * E) for x, b, d in zip(out, bsz, self.datum_size)] # [B, TC, D * E]
+            out = [proj(xx) for proj, xx in zip(self.population_projs, out)] # [B, TC, E]
+            out = torch.cat(out, dim=0) # sum(B), TC, E
+            d_list = [1 for _ in self.datum_size]
+        else:
+            d_list = self.datum_size
 
         if isinstance(self.decoder, POYO):
             if unit_indices is None:
@@ -478,34 +557,49 @@ class Decoder(nn.Module):
                     sum_channels += d
                 unit_indices = torch.cat(unit_indices, dim=0) # sum(B * D)
             if unit_timestamps is None:
-                unit_timestamps = torch.zeros_like(unit_indices).unsqueeze(1) + torch.arange(0, self.Tin, self.T_step, device=x.device) # sum(B * D), L
+                unit_timestamps = torch.zeros_like(unit_indices).unsqueeze(1) + torch.arange(0, self.Tin, self.T_step, device=x.device) # sum(B * D), TC
 
             input_seqlen = torch.cat([torch.full((b, ), d, device=x.device) 
                                             for b, d in zip(bsz, self.datum_size)], dim=0)
             session_index = torch.cat([torch.full((b, d), i, device=x.device).reshape(-1) 
                                             for i, (b, d) in enumerate(zip(bsz, self.datum_size))], dim=0)
-
             embed = self.decoder(
                 out,
                 unit_indices=unit_indices,
                 unit_timestamps=unit_timestamps,
                 input_seqlen=input_seqlen,
                 session_index=session_index,
-                pred_step=pred_step
+                pred_step=pred_step,
             )
+            if embed.dim() == 3:
+                embed = embed.reshape(embed.shape[0], -1) # sum(B * D), pred_length
+                d_list = [1 for _ in self.datum_size]
+
         else:
             embed = self.decoder(out) # sum(B * D), embed
         
-        if self.normalize_seq:
-            mu = x_mean + mu
-            std = x_std + std
+        if self.mu_std_module_mode == 'original':
+            mu, std = x_mean, x_std
+        elif self.mu_std_module_mode == 'learned':
+            pass
+        elif self.mu_std_module_mode == 'combined':
+            mu, std = mu + x_mean, std + x_std
+        elif self.mu_std_module_mode == 'combined_mu_only':
+            mu = mu + x_mean
+            std = torch.ones_like(std)
+        elif self.mu_std_module_mode == 'none':
+            mu = torch.zeros_like(mu)
+            std = torch.ones_like(std)
+        else:
+            raise ValueError(f"Unknown mu_std_module_mode {self.mu_std_module_mode}")
+
         self.mu = mu.clone().squeeze(-1)
         self.std = std.clone().squeeze(-1)
 
-        # partition embed, to a list of tensors, each of shape (B, D, embed)
-        split_size = [b * d * self.embed_length for b, d in zip(bsz, self.datum_size)]
+        # partition embed to a list of tensors, each of shape (B, D, embed)
+        split_size = [b * d * self.embed_length for b, d in zip(bsz, d_list)]
         embed = torch.split(embed, split_size, dim=0) # [B * D, embed]
-        embed = [xx.reshape(b, d, self.embed_length, self.embedding_dim) for xx, b, d in zip(embed, bsz, self.datum_size)]
+        embed = [xx.reshape(b, d, self.embed_length, self.embedding_dim) for xx, b, d in zip(embed, bsz, d_list)]
 
         split_size = [b * d for b, d in zip(bsz, self.datum_size)]
         mu = torch.split(mu, split_size, dim=0) # [B * D, 1]
@@ -514,14 +608,18 @@ class Decoder(nn.Module):
         std = [xx.reshape(b, d) for xx, b, d in zip(std, bsz, self.datum_size)]
 
         preds = []
-        for i, (e, m, s) in enumerate(zip(embed, mu, std)):
+        for i, (e, m, s, d) in enumerate(zip(embed, mu, std, self.datum_size)):
+            if e.shape[1] < d:
+                assert e.shape[1] == 1
+                e = e.repeat(1, d, 1, 1)
+
             if self.separate_projs:
                 proj = self.proj[i]
             else:
                 proj = self.proj
             
             if e.shape[2] > 1:
-                b, d = e.shape[0], e.shape[1]
+                b = e.shape[0]
                 e = e.permute(0, 2, 1, 3)
                 e = e.reshape(-1, e.shape[2], e.shape[3]) # B * pred_length, D, embed_dim
 
@@ -532,7 +630,7 @@ class Decoder(nn.Module):
             assert pred.shape[2] == pred_step 
             
             # pred = (pred - pred.mean(dim=-1, keepdims=True)) / pred.std(dim=-1, keepdims=True) # normalized
-            if self.normalize_seq:
+            if self.mu_std_module_mode != 'none':
                 pred = pred * s.unsqueeze(-1) + m.unsqueeze(-1)
             preds.append(pred.permute(2, 0, 1))
 

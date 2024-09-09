@@ -6,7 +6,7 @@ import torch
 
 from configs.config_global import ROOT_DIR, LOG_LEVEL, FIG_DIR
 from utils.config_utils import configs_dict_unpack, configs_transpose
-from analysis import plots
+from analysis import plots, analyze_performance
 from configs import experiments
 from configs.configs import NeuralPredictionConfig
 from datasets.zebrafish import get_baseline_performance, Zebrafish, Simulation, VisualZebrafish
@@ -111,7 +111,7 @@ def compare_model_training_curves(
     mode_list = ['none', ], 
     model_list = ['Transformer', 'S4', 'LSTM', 'RNN', ],
     plot_model_lists = None,
-    plot_train_test_curve = True,
+    plot_train_test_curve = False,
     show_test_performance = True
 ):
     """
@@ -158,7 +158,7 @@ def compare_model_training_curves(
                     y_label='Train Loss',
                     label_list=['Train', 'Test'],
                     save_dir=save_dir,
-                    fig_name=f'all_fish_{mode}_{model}',
+                    fig_name=f'{mode}_{model}',
                     figsize=(5, 4),
                     mode='errorshade',
                     extra_lines=draw_baseline
@@ -185,7 +185,7 @@ def compare_model_training_curves(
                 y_label='Train Loss',
                 label_list=plot_model_list,
                 save_dir=save_dir,
-                fig_name=f'all_fish_{mode}_train_{key}',
+                fig_name=f'{mode}_train_{key}',
                 figsize=(5, 4),
                 mode='errorshade',
             )
@@ -208,8 +208,8 @@ def compare_model_training_curves(
                 y_label='Validation Loss',
                 label_list=plot_model_list,
                 save_dir=save_dir,
-                fig_name=f'all_fish_{mode}_val_{key}',
-                figsize=(7 + show_test_performance * 4, 4),
+                fig_name=f'{mode}_val_{key}',
+                figsize=(8 + show_test_performance * 4, 4),
                 mode='errorshade',
                 extra_lines=draw_baseline,
                 legend_bbox_to_anchor=(1.05, 0), # move the legend to the right
@@ -224,10 +224,16 @@ def compare_param_analysis(
     save_dir='compare_param', 
     plot_model_list=None,
     key='val_mse',
-    show_chance=True
+    show_chance=True,
+    logarithm=False
 ):
     """
     For each model, plot the best test loss vs. the parameter
+
+    :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
+        The list should be of length len(mode_list) * len(model_list) * len(param_list)
+    :param param_list: a list of parameters to compare, this will be the x-axis of the plot
+    :param model_list: the list of models to compare, this will become legend of the plot
     """
 
     for k, mode in enumerate(mode_list):
@@ -239,6 +245,8 @@ def compare_param_analysis(
             for j, param in enumerate(param_list):    
                 idx = (k * len(model_list) + i) * len(param_list) + j
                 loss = get_performance(cfgs, idx, key1=key, key2=key)
+                if logarithm:
+                    loss = np.log(loss)
                 performances.append(loss)
                 train_loss = get_performance(cfgs, idx)
                 train_performances.append(train_loss)
@@ -248,6 +256,8 @@ def compare_param_analysis(
         if show_chance:
             val_baseline_performance = [get_baseline_performance(
                     cfgs[0][k * len(model_list) * len(param_list) + j], 'test')[f'avg_copy_{key[-3: ]}'] for j in range(len(param_list))]
+            if logarithm:
+                val_baseline_performance = np.log(val_baseline_performance)
             def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
                 plt.plot(param_list, val_baseline_performance, color='gray', linestyle='--', linewidth=linewidth)
 
@@ -261,9 +271,9 @@ def compare_param_analysis(
             curves,
             label_list=model_list,
             x_label=param_name,
-            y_label='Prediction Loss',
+            y_label=key if not logarithm else f'log({key})',
             save_dir=save_dir,
-            fig_name=f'compare_{param_name}_{mode}_{key}',
+            fig_name=f'compare_{param_name}_{mode}_{key}' if not logarithm else f'compare_{param_name}_{mode}_log_{key}',
             figsize=(5, 4),
             mode='errorshade',
             extra_lines=draw_baseline if show_chance else None,
@@ -375,6 +385,24 @@ def sim_compare_train_length_analysis():
         extra_lines=draw_fit
     )
 
+def conv_encoder_analysis():
+    cfgs = experiments.conv_encoder_test()
+    compare_model_training_curves(
+        cfgs, 'conv_encoder_test',
+        mode_list=['spontaneous', 'spontaneous_pc',  ],
+        model_list=[
+            'POYO_cnn_64_4', 'POYO_cnn_64_16', 'POYO_cnn_512_4', 'POYO_cnn_512_16', 
+            'Linear_cnn_64_4', 'Linear_cnn_64_16', 'Linear_cnn_512_4', 'Linear_cnn_512_16', ],
+    )
+
+def population_token_analysis():
+    cfgs = experiments.compare_population_token_dim()
+    compare_model_training_curves(
+        cfgs, 'population_token_dim',
+        mode_list=['4_128', '4_512', '16_128', '16_512'],
+        model_list=['Transformer', 'Linear', 'MLP', ],
+    )
+
 plot_lists = {
     'AR': ['AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM'],
     'Latent': ['Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN'],
@@ -430,22 +458,15 @@ def compare_models_individual_region_analysis():
         plot_train_test_curve=False
     )
 
-def sim_compare_models_train_length_analysis():
-    cfgs = experiments.sim_compare_models_train_length()
+def compare_models_long_time_scale_analysis():
+    cfgs = experiments.compare_models_long_time_scale()
     model_list = experiments.model_list
-    param_list = np.log2([512, 2048, 8192, 65536, ])
-    compare_param_analysis(
-        cfgs, param_list, model_list=model_list, param_name='log(Training Length)', 
-        save_dir='sim_compare_models',
-        plot_model_list=['TOTEM_MLP', 'Latent_CTRNN', 'AR_S4', 'Linear', 'TCN']
-    )
-
-    cfgs = configs_transpose(cfgs, (len(model_list), len(param_list)))
     compare_model_training_curves(
-        cfgs, 'sim_compare_models_train_length', 
+        cfgs, 'compare_models_longer_timescale', 
         model_list=model_list, 
-        mode_list=[512, 2048, 8192, 65536, ],
-        plot_model_lists=plot_lists
+        mode_list=['spontaneous_pc_2', 'spontaneous_pc_5', 'visual_2', 'visual_5', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
     )
 
 def compare_unit_dropout_analysis():
@@ -492,12 +513,48 @@ def poyo_compare_num_latents_analysis():
     for key in ['val_mse', 'val_mae']:
         compare_param_analysis(
             cfgs, 
-            [4, 16, 64],
+            [4, 16, ],
             ['POYO', 'POYO_TOTEM', ],
             param_name='num_latents',
             save_dir='poyo_params',
             key=key,
             mode_list=['spontaneous', 'spontaneous_pc', ]
+        )
+    
+def poyo_compare_mu_std_module_analysis():
+    cfgs = experiments.poyo_compare_mu_std_module()
+    compare_model_training_curves(
+        cfgs, 'poyo_compare_mu_std_module',
+        mode_list=['combined_mu_only', 'combined', 'original', 'learned', 'none', ],
+        model_list=['norm_proj', 'norm', 'proj', 'none'],
+    )
+
+    cfgs = experiments.poyo_compare_mu_std_module_neuron()
+    compare_model_training_curves(
+        cfgs, 'poyo_compare_mu_std_module_neuron',
+        mode_list=['combined_mu_only', 'combined', 'original', 'learned', 'none', ],
+        model_list=['norm_proj', 'norm', 'proj', 'none'],
+    )
+
+def linear_compare_mu_std_module_analysis():
+    cfgs = experiments.linear_test()
+    compare_model_training_curves(
+        cfgs, 'linear_compare_mu_std_module',
+        mode_list=['pc_none', 'pc_combined', 'single_none', 'single_combined'],
+        model_list=['norm_proj', 'norm', 'proj', 'none'],
+    )
+
+def poyo_compare_tmax_analysis():
+    cfgs = experiments.poyo_compare_tmax()
+    for key in ['val_mse', 'val_mae']:
+        compare_param_analysis(
+            cfgs, 
+            [4, 20, 100, ],
+            ['multi_m', 'multi', 'single', ],
+            param_name='tmax',
+            save_dir='poyo_params',
+            key=key,
+            mode_list=['spontaneous_pc', ]
         )
 
 def compare_compression_factor_analysis():
@@ -539,9 +596,56 @@ def compare_wd_analysis():
             mode_list=['spontaneous', 'spontaneous_pc', ]
         )
 
-def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
+def poyo_ablations_analysis():
+    cfgs = experiments.poyo_ablations()
+    model_list = [
+        'POYO (direct channel-wise readout)', 
+        'POYO (direct readout)', 
+        'POYO (Perceiver IO, channel-wise readout)', 
+        'POYO (Perceiver IO)', 
+        'Transformer (channel-wise)', 
+        'Transformer (population)', 
+    ]
+    compare_model_training_curves(
+        cfgs, 
+        model_list=model_list,
+        save_dir='poyo_ablations',
+        mode_list=['spontaneous_pc', ]
+    )
+
+def compare_train_length_analysis():
+    cfgs = experiments.compare_train_length_pc()
+    for key in ['val_mse', 'val_mae']:
+        compare_param_analysis(
+            cfgs, 
+            np.log2([128, 256, 512, 1024, 2048, ]),
+            experiments.selected_model_list,
+            param_name='log2(train_data_length)',
+            save_dir='train_length',
+            key=key,
+            mode_list=['spontaneous', ],
+            logarithm=True
+        )
+
+    cfgs = experiments.compare_train_length_sim()
+    for key in ['val_mse', 'val_mae']:
+        compare_param_analysis(
+            cfgs, 
+            np.log2([256, 1024, 4096, 16384, 65536, ]),
+            experiments.selected_model_list,
+            param_name='log2(train_data_length)',
+            save_dir='train_length',
+            key=key,
+            mode_list=['sim512', ],
+            logarithm=True
+        )
+
+def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do_dmd=True, dmd_delay=20):
     import matplotlib.pyplot as plt
     from scipy import signal
+    from pydmd import DMD, BOPDMD
+    from pydmd.plotter import plot_eigs, plot_summary, plot_modes_2D
+    from pydmd.preprocessing import hankel_preprocessing
 
     config.train_split = 1
     config.val_split = 0
@@ -555,20 +659,22 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
     elif config.dataset == 'zebrafish_visual':
         dataset = VisualZebrafish(config, 'train')
 
+    all_dynamics = []
+
     for title, data in zip(titles, dataset.neural_data):
         length = len(data)
         plt.figure(figsize=(10, 10))
-        # a subplot for each pc
 
+        # a subplot for each pc
         if length < 10:
-            print(f'{title} has less than 10 dimensions')
+            print(f'{title} has less than 10 channels')
             continue
 
         for i in range(10):
             ax = plt.subplot(10, 2, i * 2 + 1)
             ax.plot(data[i])
             smoothed = np.convolve(data[i], np.ones(250) / 250, mode='same')
-            ax.plot(smoothed, color='red')
+            # ax.plot(smoothed, color='red')
             ax.set_ylabel(f'Dim {i + 1}')
 
             # plot the power spectrum
@@ -579,11 +685,11 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
 
         save_dir = osp.join(FIG_DIR, 'traces_visualization', sub_save_dir)
         os.makedirs(save_dir, exist_ok=True)
+        plt.tight_layout()
         plt.savefig(osp.join(save_dir, f'{title}.png'))
         plt.close()
 
-        # plot 2 sample patches of lenth 64 for each dimension 
-
+        # plot 2 sample patches of lenth 64 for each channel
         plt.figure(figsize=(10, 10))
         for i in range(10):
             for j in range(2):
@@ -594,23 +700,88 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None):
                 ax.plot(data[i][start: start + 64])
                 ax.set_ylabel(f'Dim {i + 1}')
 
+        plt.tight_layout()
         plt.savefig(osp.join(save_dir, f'{title}_patch.png'))
         plt.close()
 
+        if not do_dmd:
+            continue
+
+        # plot 3: mods found by DMD
+        # Build an exact DMD model with 12 spatiotemporal modes.
+        d = dmd_delay # delay might be required for noisy data
+        optdmd = BOPDMD(svd_rank=12)
+        dmd = hankel_preprocessing(optdmd, d=d)
+        t = np.arange(0, len(data[0]))
+        delayt = t[: -d + 1]
+        dmd.fit(data, t=delayt)
+        
+        # Plot a summary of the key spatiotemporal modes.
+        plot_summary(dmd, filename=osp.join(save_dir, f'{title}_dmd.png'), index_modes=(0, 2, 4))
+
+        plt.figure(figsize=(10, 12))
+        mode_order = np.argsort(-np.abs(dmd.amplitudes))
+        lead_eigs = dmd.eigs[mode_order]
+        lead_modes = dmd.modes[:, mode_order]
+        lead_dynamics = dmd.dynamics[mode_order]
+        lead_amplitudes = np.abs(dmd.amplitudes[mode_order])
+
+        all_dynamics.append((lead_dynamics, lead_eigs))
+
+        for i in range(12):
+            ax = plt.subplot(6, 2, i + 1)
+            ax.plot(lead_dynamics[i])
+            ax.set_ylabel(f'Mode {i + 1}')
+            ax.title.set_text(f'Eigenvalue: {lead_eigs[i].real:.4f} + {lead_eigs[i].imag:.4f}j')
+
+        plt.tight_layout()
+        plt.savefig(osp.join(save_dir, f'{title}_dmd_mode_dynamics.png'))
+        plt.close()
+
+    # a single plot for all the dynamics
+    if len(all_dynamics) <= 1:
+        return
+    
+    n_modes = 10
+    plt.figure(figsize=(n_modes * 2 + 1, len(all_dynamics)))
+    for i, (lead_dynamics, lead_eigs) in enumerate(all_dynamics):
+        for j in range(n_modes):
+            ax = plt.subplot(len(all_dynamics), n_modes, i * n_modes + j + 1)
+            ax.plot(lead_dynamics[j], label=f'{j + 1} ({lead_eigs[j].real:.4f} + {lead_eigs[j].imag:.4f}j)')
+            if j == 0:
+                ax.set_ylabel(titles[i])
+    plt.tight_layout()
+    plt.savefig(osp.join(save_dir, f'all_dynamics.png'))
+    plt.close()
+
+
 def plot_traces_analysis():
     from utils.data_utils import get_exp_names, get_subject_ids
+    from copy import deepcopy
 
-    config: NeuralPredictionConfig = experiments.compare_models_pc()[0][0]
     exp_names = get_exp_names()
-    all_titles = []
-    for key in exp_names:
-        all_titles.extend([f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
-    plot_traces(config, 'spontaneous_PCs', all_titles)
+    config: NeuralPredictionConfig = experiments.compare_models_fc()[0][0]
+    for key in exp_names.keys():
+        all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
+        config.exp_types = [key]
+        plot_traces(deepcopy(config), f'spontaneous_FCs_{key}', all_titles, dmd_delay=20)
+
+    config = experiments.compare_models_pc()[0][0]
+    for key in exp_names.keys():
+        all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
+        config.exp_types = [key]
+        plot_traces(deepcopy(config), f'spontaneous_PCs_{key}', all_titles, dmd_delay=20)    
+
+    config = experiments.compare_models_single_neuron()[0][len(experiments.single_neuron_model_list)]
+    for key in exp_names.keys():
+        all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
+        config.exp_types = [key]
+        plot_traces(deepcopy(config), f'spontaneous_{key}', all_titles, dmd_delay=2)
 
     config = experiments.compare_models_pc()[0][len(experiments.model_list)]
     exp_names = get_subject_ids()
     exp_names = [f'visual_{name}' for name in exp_names]
-    plot_traces(config, 'visual_PCs', exp_names)
+    plot_traces(config, 'visual_PCs', exp_names, do_dmd=False)
 
     for i, n_neurons in enumerate([512, 1024]):
         config = experiments.compare_models_sim()[0][i * len(experiments.model_list)]
@@ -620,13 +791,20 @@ def plot_traces_analysis():
         plot_traces(config, 'sim', exp_names)
 
     config = experiments.compare_models_single_neuron()[0][0]
-    exp_names = get_exp_names()
-    all_titles = []
-    for key in exp_names:
-        all_titles.extend([f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)])
-    plot_traces(config, 'visual', all_titles)
-
-    config = experiments.compare_models_single_neuron()[0][len(experiments.single_neuron_model_list)]
     exp_names = get_subject_ids()
     exp_names = [f'visual_{name}' for name in exp_names]
-    plot_traces(config, 'spontaneous', exp_names)
+    plot_traces(config, 'visual', exp_names, do_dmd=False)
+    
+
+def detailed_performance_analysis():
+    cfgs = experiments.compare_models_pc()
+    for seed, cfg_list in cfgs.items():
+        for cfg in cfg_list:
+            if cfg.model_label in experiments.selected_model_list:
+                analyze_performance.analyze_predictivity(cfg)
+
+    cfgs = experiments.compare_models_sim_pc()
+    for seed, cfg_list in cfgs.items():
+        for cfg in cfg_list:
+            if cfg.model_label in experiments.selected_model_list:
+                analyze_performance.analyze_predictivity(cfg)

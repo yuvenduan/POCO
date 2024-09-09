@@ -180,7 +180,6 @@ class MuStdModel(nn.Module):
         x = self.mustd(x)
         return x
 
-
 class Transformer(nn.Module):
     def __init__(
         self,

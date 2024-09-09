@@ -29,3 +29,10 @@ def get_subject_ids():
             subject_ids.append(int(subject_id))
 
     return subject_ids
+
+def get_stim_exp_names():
+    exp_names = {
+        'control': ['c02'],
+        'stim': ['e01', 'e02', 'e03']
+    }
+    return exp_names

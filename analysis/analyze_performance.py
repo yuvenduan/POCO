@@ -10,7 +10,12 @@ def analyze_predictivity(config: NeuralPredictionConfig):
 
     for phase in ['val']:
 
-        info_dict = np.load(os.path.join(config.save_path, f'{phase}_best_info.npy'), allow_pickle=True).item()
+        try:
+            info_dict = np.load(os.path.join(config.save_path, f'{phase}_best_info.npy'), allow_pickle=True).item()
+        except:
+            print(f'No {phase} info file found at {config.save_path}')
+            continue
+
         mse = info_dict['mse'] # list of tensors, each tensor has shape [pred_step, d], sum of mse for all trials
         mae = info_dict['mae'] # similar to mse
         pred_num = info_dict['pred_num'] # list of tensors, each tensor has shape [d]
@@ -56,10 +61,26 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             plt.hlines(0, 0, config.pc_dim, linestyles='dashed', color='gray')
             plt.legend()
             plt.xlabel('PC')
-            plt.ylabel('Improvement over baseline')
+            plt.ylabel('Improvement over copy baseline')
             plt.tight_layout()
             plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_improvement.png'))
             plt.close()
+
+            # plot 2.5 use chance mse and mae as baseline
+            baseline_mse = baseline_loss_dict['mean_chance_mse']
+            baseline_mae = baseline_loss_dict['mean_chance_mae']
+
+            plt.figure(figsize=(4, 3))
+            plt.plot((baseline_mse - mean_mse) / baseline_mse, label='MSE')
+            plt.plot((baseline_mae - mean_mae) / baseline_mae, label='MAE')
+            plt.hlines(0, 0, config.pc_dim, linestyles='dashed', color='gray')
+            plt.legend()
+            plt.xlabel('PC')
+            plt.ylabel('Improvement over baseline')
+            plt.tight_layout()
+            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_improvement_chance.png'))
+            plt.close()
+
 
         # plot 3: violin plot of relative mse and mae for each animal
         baseline_mse = np.array(baseline_loss_dict['animal_copy_mse'])

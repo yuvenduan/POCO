@@ -30,7 +30,9 @@ class POYO(nn.Module):
         datum_size=None,
         query_length=1,
         T_step=1,
-        unit_dropout=0.0
+        unit_dropout=0.0,
+        output_latent=False, # if True, return the latent representation, else return the query representation
+        t_max=100
     ):
         super().__init__()
 
@@ -52,11 +54,13 @@ class POYO(nn.Module):
             lin_dropout=lin_dropout,
             atn_dropout=atn_dropout,
             use_memory_efficient_attn=use_memory_efficient_attn,
+            t_max=t_max,
         )
 
         self.dim = dim
         self.T_step = T_step
         self.using_memory_efficient_attn = self.perceiver_io.using_memory_efficient_attn
+        self.output_latent = output_latent
 
     def forward(
         self,
@@ -120,7 +124,8 @@ class POYO(nn.Module):
             input_mask=None,
             input_seqlen=input_seqlen * L,
             latent_seqlen=latent_seqlen,
-            output_query_seqlen=input_seqlen
+            output_query_seqlen=input_seqlen,
+            output_latent=self.output_latent,
         )
 
         return output_latents

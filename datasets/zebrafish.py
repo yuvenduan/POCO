@@ -27,6 +27,20 @@ class NeuralDataset(tud.Dataset):
         Should be implemented in the subclass
         """
         raise NotImplementedError
+    
+    def downsample(self, data: np.ndarray):
+        if self.sampling_freq == 1:
+            return data
+        
+        if self.sampling_mode == 'point':
+            return data[:, ::self.sampling_freq]
+        elif self.sampling_mode == 'avg':
+            T = data.shape[1]
+            new_T = T // self.sampling_freq
+            data = data[:, : new_T * self.sampling_freq]
+            return np.mean(data.reshape(data.shape[0], -1, self.sampling_freq), axis=2)
+        else:
+            raise NotImplementedError(self.sampling_mode)
 
     def __init__(self, config: NeuralPredictionConfig, phase='train'):
 
@@ -38,6 +52,8 @@ class NeuralDataset(tud.Dataset):
         self.normalize_coef = []
 
         animal_idx = 0
+        self.sampling_freq = config.sampling_freq
+        self.sampling_mode = 'avg'
         all_activities = self.load_all_activities(config)
 
         for all_activity in all_activities:
@@ -309,11 +325,9 @@ class Zebrafish(NeuralDataset):
                     continue
 
                 filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
-                if config.sampling_rate != 1:
-                    print(f'Warning: Using sampling rate {config.sampling_rate}')
 
                 with np.load(filename) as fishdata:
-                    if config.pc_dim is None:
+                    if config.pc_dim is None and config.fc_dim is None:
                         all_regions = [
                             'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
                             'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
@@ -322,15 +336,15 @@ class Zebrafish(NeuralDataset):
                         
                         if config.brain_regions == 'all':
                             # use all brain regions
-                            all_activity: np.ndarray = fishdata['M'][:, ::config.sampling_rate]
+                            all_activity: np.ndarray = fishdata['M']
                         elif config.brain_regions == 'average':
                             # use average activity of all brain regions
-                            all_activity = np.empty((len(all_regions), fishdata['M'].shape[1] // config.sampling_rate))
+                            all_activity = np.empty((len(all_regions), fishdata['M'].shape[1]))
                             for i, roi_index in enumerate(roi_indices):
                                 if np.sum(roi_index) == 0:
-                                    all_activity[i] = np.zeros((fishdata['M'].shape[1] // config.sampling_rate, ))
+                                    all_activity[i] = np.zeros((fishdata['M'].shape[1], ))
                                 else:
-                                    all_activity[i] = fishdata['M'][roi_index].mean(axis=0)[::config.sampling_rate]
+                                    all_activity[i] = fishdata['M'][roi_index].mean(axis=0)
                             assert config.normalize_mode == 'zscore', 'Recommend using zscore normalization when using averaged activity'
                         else:
                             # use specific brain regions
@@ -341,11 +355,15 @@ class Zebrafish(NeuralDataset):
                                 region = 'in_' + region
                                 assert region in all_regions, f'Invalid brain region {region}'
                                 use_indices |= roi_indices[all_regions.index(region)]
-                            all_activity: np.ndarray = fishdata['M'][use_indices, ::config.sampling_rate]
+                            all_activity: np.ndarray = fishdata['M'][use_indices]
+                    elif config.fc_dim is not None:
+                        assert config.brain_regions == 'all', 'Only support using all brain regions when using FC'
+                        all_activity: np.ndarray = fishdata[f'FC_{config.fc_dim}']
                     else:
                         assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
-                        all_activity: np.ndarray = fishdata['PC'][: config.pc_dim, ::config.sampling_rate]
+                        all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
                     
+                    all_activity = self.downsample(all_activity)
                     all_activities.append(all_activity)
         
         return all_activities
@@ -361,14 +379,15 @@ class Simulation(NeuralDataset):
 
         data = np.load(filename)
         if config.pc_dim is None:
-            all_activity: np.ndarray = data['M'][:, ::config.sampling_rate]
+            all_activity: np.ndarray = data['M']
             n = all_activity.shape[0]
             if config.portion_observable_neurons < 1:
                 n_observable = int(n * config.portion_observable_neurons)
                 all_activity = all_activity[: n_observable]
         else:
-            all_activity: np.ndarray = data['PC'][: config.pc_dim, ::config.sampling_rate]
+            all_activity: np.ndarray = data['PC'][: config.pc_dim]
         
+        all_activity = self.downsample(all_activity)
         return [all_activity]
 
 class VisualZebrafish(NeuralDataset):
@@ -410,6 +429,7 @@ class VisualZebrafish(NeuralDataset):
                     all_activity = np.concatenate([all_activity, s], axis=0)
                     assert config.stimuli_dim == 24
 
+                all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
         return all_activities
     

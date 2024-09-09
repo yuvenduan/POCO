@@ -22,7 +22,7 @@ class BaseConfig(object):
         self.dataset = None
         self.save_path = None
         self.model_label = None
-        self.datalabel = None
+        self.dataset_label = None
         self.seed = 0
 
         # Weight for each dataset
@@ -67,7 +67,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         # optimizer
         self.batch_size = 64
         self.optimizer_type = 'AdamW'
-        self.lr = 1e-3
+        self.lr = 3e-4
         self.wdecay = 1e-4
 
         # scheduler
@@ -158,6 +158,11 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.num_residual_layers = 2
         self.res_hidden_size = 64
 
+        # cnn model config
+        self.kernel_size
+        self.conv_channels = 64
+        self.conv_stride = 4
+
         # latent model config
         self.tf_interval = 5 
         self.hidden_size
@@ -166,17 +171,25 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # decoder config
         self.encoder_dir = None
+        self.encoder_type = 'none' # or 'cnn', 'vqvae'
+        self.population_token = False # if True, use a single token for the whole population, otherwise use individual tokens
+        self.population_token_dim = 512
         self.encoder_state_dict_file = f'net_{self.max_batch}.pth'
         self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
         self.decoder_hidden_size = 256
         self.separate_projs = True
         self.decoder_proj_init = 'fan_in'
-        self.mu_std_loss_coef = 0 # if None, do not normalize; otherwise normalize the input, the predicted mean and std
+        self.normalize_input = True
+        self.mu_std_loss_coef = 0
+        self.mu_std_module_mode = 'combined' # original mean / std; learned mean / std
+        self.mu_std_separate_projs = False
         self.poyo_num_latents = 8
         self.poyo_query_mode = 'single' # or 'multi'
+        self.poyo_output_mode = 'query' # or 'latent'
         self.decoder_num_layers = 4
         self.decoder_num_heads = 8
         self.poyo_unit_dropout = 0
+        self.rotary_attention_tmax = 100
 
         self.do_analysis = False
 
@@ -200,15 +213,16 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.perform_test = True
         self.perform_val = True
         self.patch_length = 1000 # train and val sets will be devided in each patch_length segment
-        self.loss_mode = 'autoregressive' 
+        self.loss_mode = 'autoregressive'
         # or 'prediction', for the latter the target will be the next frame
 
         # config for data
         self.animal_ids = 'all'
         # self.train_fish_ids = [] # all neural data (instead of just first 70%) of fish in this list will be used for training
         self.pc_dim = 512 # number of principal components to used for training, if None, predict original data
+        self.fc_dim = None # number of functional clusters to used for training; pc_dim will be ignored if this is not None
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
-        self.sampling_rate = 1 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
+        self.sampling_freq = 1 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
         self.test_set_window_stride = 1 # larger stride will make the test set smaller but faster to evaluate
 
         # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
