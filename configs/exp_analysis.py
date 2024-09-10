@@ -406,10 +406,21 @@ def population_token_analysis():
 plot_lists = {
     'AR': ['AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM'],
     'Latent': ['Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN'],
-    'TOTEM': ['Transformer_TOTEM', 'MLP_TOTEM', 'Linear_TOTEM', 'POYO_TOTEM'],
+    # 'TOTEM': ['Transformer_TOTEM', 'MLP_TOTEM', 'Linear_TOTEM', 'POYO_TOTEM'],
     'Decoder': ['Transformer', 'MLP', 'Linear', 'POYO'],
-    'Selected': ['Linear', 'Transformer', 'POYO', 'POYO_TOTEM', 'AR_S4', 'Latent_CTRNN'],
+    'Selected': ['Linear', 'Transformer', 'POYO', 'AR_S4', 'Latent_CTRNN'],
 }
+
+def compare_models_fc_analysis():
+    cfgs = experiments.compare_models_fc()
+    model_list = experiments.model_list
+    compare_model_training_curves(
+        cfgs, 'compare_models_fc',
+        model_list=model_list[4: ],
+        mode_list=['spontaneous_fc', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
+    )
 
 def compare_models_pc_analysis():
     cfgs = experiments.compare_models_pc()
@@ -788,7 +799,7 @@ def plot_traces_analysis():
         config.train_data_length = 3000
         config.pc_dim = n_neurons
         exp_names = [f'sim_{n_neurons}']
-        plot_traces(config, 'sim', exp_names)
+        plot_traces(config, 'sim', exp_names, dmd_delay=2)
 
     config = experiments.compare_models_single_neuron()[0][0]
     exp_names = get_subject_ids()
