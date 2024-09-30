@@ -199,7 +199,7 @@ def analyze_experiment(experiment, prev_ids, on_cluster, partition, account):
             python_cmd = analysis_cmd(experiment)
             job_n = experiment + '_analysis'
             slurm_cmd = ['sbatch', get_jobfile(python_cmd, job_n,
-                                               dep_ids=prev_ids, email=False, partition=partition,
+                                               dep_ids=prev_ids, partition=partition,
                                                hours=24, mem=64, account=account)]
             cp_process = subprocess.run(slurm_cmd, capture_output=True,
                                         check=True)

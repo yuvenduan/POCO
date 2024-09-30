@@ -30,7 +30,7 @@ def heatmap_plot(
         plt.ylabel(ylabel, fontsize=fontsize)
 
     if save_dir and fig_name:
-        plt.savefig(os.path.join(save_dir, fig_name + '.png'))
+        plt.savefig(os.path.join(save_dir, fig_name + '.pdf'))
     else:
         plt.show()
     plt.close()
@@ -77,6 +77,7 @@ def error_plot(
     y_offsets=None,
     xlim=None,
     ylim=None,
+    suffix='.pdf'
 ):
     """
     A generic error bar plot
@@ -228,7 +229,7 @@ def error_plot(
 
     save_dir = os.path.join(FIG_DIR, save_dir)
     os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, f'{fig_name}.png'))
+    plt.savefig(os.path.join(save_dir, f'{fig_name}{suffix}'))
     plt.close()
 
 def errorbar_plot(
@@ -376,7 +377,7 @@ def grouped_plot(
 
     save_dir = os.path.join(FIG_DIR, save_dir)
     os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, f'{fig_name}.png'))
+    plt.savefig(os.path.join(save_dir, f'{fig_name}.pdf'))
     plt.close()
 
 def histogram_plot(
@@ -465,7 +466,7 @@ def histogram_plot(
     adjust_figure()
 
     os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, f'{fig_name}.png'))
+    plt.savefig(os.path.join(save_dir, f'{fig_name}.pdf'))
     plt.close()
 
 def scatter_plot(
@@ -524,7 +525,7 @@ def scatter_plot(
 
     save_dir = os.path.join(FIG_DIR, save_dir)
     os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, f'{fig_name}.png'))
+    plt.savefig(os.path.join(save_dir, f'{fig_name}.pdf'))
     plt.close()
 
 
@@ -611,5 +612,5 @@ def pred_vs_target_plot(
 
     save_dir = os.path.join(FIG_DIR, save_dir)
     os.makedirs(save_dir, exist_ok=True)
-    plt.savefig(os.path.join(save_dir, f'{fig_name}.png'))
+    plt.savefig(os.path.join(save_dir, f'{fig_name}.pdf'))
     plt.close()

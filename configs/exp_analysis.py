@@ -635,6 +635,7 @@ def compare_train_length_analysis():
             save_dir='train_length',
             key=key,
             mode_list=['spontaneous', ],
+            plot_model_list=['POYO', 'Linear', ],
             logarithm=True
         )
 
@@ -647,6 +648,7 @@ def compare_train_length_analysis():
             param_name='log2(train_data_length)',
             save_dir='train_length',
             key=key,
+            plot_model_list=['POYO', 'Linear', ],
             mode_list=['sim512', ],
             logarithm=True
         )
@@ -654,7 +656,7 @@ def compare_train_length_analysis():
 def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do_dmd=True, dmd_delay=20):
     import matplotlib.pyplot as plt
     from scipy import signal
-    from pydmd import DMD, BOPDMD
+    from pydmd import DMD, BOPDMD, HankelDMD
     from pydmd.plotter import plot_eigs, plot_summary, plot_modes_2D
     from pydmd.preprocessing import hankel_preprocessing
 
@@ -671,6 +673,7 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do
         dataset = VisualZebrafish(config, 'train')
 
     all_dynamics = []
+    all_evs = [] 
 
     for title, data in zip(titles, dataset.neural_data):
         length = len(data)
@@ -697,7 +700,7 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do
         save_dir = osp.join(FIG_DIR, 'traces_visualization', sub_save_dir)
         os.makedirs(save_dir, exist_ok=True)
         plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'{title}.png'))
+        plt.savefig(osp.join(save_dir, f'{title}.pdf'))
         plt.close()
 
         # plot 2 sample patches of lenth 64 for each channel
@@ -712,7 +715,7 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do
                 ax.set_ylabel(f'Dim {i + 1}')
 
         plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'{title}_patch.png'))
+        plt.savefig(osp.join(save_dir, f'{title}_patch.pdf'))
         plt.close()
 
         if not do_dmd:
@@ -721,14 +724,13 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do
         # plot 3: mods found by DMD
         # Build an exact DMD model with 12 spatiotemporal modes.
         d = dmd_delay # delay might be required for noisy data
-        optdmd = BOPDMD(svd_rank=12)
+        optdmd = BOPDMD(svd_rank=12, varpro_opts_dict={"tol": 0.1})
         dmd = hankel_preprocessing(optdmd, d=d)
         t = np.arange(0, len(data[0]))
         delayt = t[: -d + 1]
         dmd.fit(data, t=delayt)
-        
         # Plot a summary of the key spatiotemporal modes.
-        plot_summary(dmd, filename=osp.join(save_dir, f'{title}_dmd.png'), index_modes=(0, 2, 4))
+        plot_summary(dmd, filename=osp.join(save_dir, f'{title}_dmd.pdf'), index_modes=(0, 2, 4))
 
         plt.figure(figsize=(10, 12))
         mode_order = np.argsort(-np.abs(dmd.amplitudes))
@@ -746,36 +748,63 @@ def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do
             ax.title.set_text(f'Eigenvalue: {lead_eigs[i].real:.4f} + {lead_eigs[i].imag:.4f}j')
 
         plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'{title}_dmd_mode_dynamics.png'))
+        plt.savefig(osp.join(save_dir, f'{title}_dmd_mode_dynamics.pdf'))
         plt.close()
 
-    # a single plot for all the dynamics
-    if len(all_dynamics) <= 1:
-        return
-    
-    n_modes = 10
-    plt.figure(figsize=(n_modes * 2 + 1, len(all_dynamics)))
-    for i, (lead_dynamics, lead_eigs) in enumerate(all_dynamics):
-        for j in range(n_modes):
-            ax = plt.subplot(len(all_dynamics), n_modes, i * n_modes + j + 1)
-            ax.plot(lead_dynamics[j], label=f'{j + 1} ({lead_eigs[j].real:.4f} + {lead_eigs[j].imag:.4f}j)')
-            if j == 0:
-                ax.set_ylabel(titles[i])
-    plt.tight_layout()
-    plt.savefig(osp.join(save_dir, f'all_dynamics.png'))
-    plt.close()
+        # Compute the singular values of the data matrix.
+        if isinstance(dmd, HankelDMD):
+            # Use time-delay data matrix to compute singular values.
+            snp = dmd.ho_snapshots
+        else:
+            # Use input data matrix to compute singular values.
+            snp = dmd.snapshots
+        s = np.linalg.svd(snp, full_matrices=False, compute_uv=False)
+        # Compute the percent of data variance captured by each singular value.
+        s_var = s * (100 / np.sum(s))
+        s_var = s_var[: 50]
 
+        all_evs.append(s_var[: 12])
+
+    # a single plot for all the dynamics
+    if len(all_dynamics) > 1:
+        n_modes = 10
+        plt.figure(figsize=(n_modes * 2 + 1, len(all_dynamics)))
+        for i, (lead_dynamics, lead_eigs) in enumerate(all_dynamics):
+            for j in range(n_modes):
+                ax = plt.subplot(len(all_dynamics), n_modes, i * n_modes + j + 1)
+                ax.plot(lead_dynamics[j], label=f'{j + 1} ({lead_eigs[j].real:.4f} + {lead_eigs[j].imag:.4f}j)')
+                if j == 0:
+                    ax.set_ylabel(titles[i])
+        plt.tight_layout()
+        plt.savefig(osp.join(save_dir, f'all_dynamics.pdf'))
+        plt.close()
+
+    if len(all_evs) > 1:
+        all_evs = np.array(all_evs).T
+        plots.error_plot(
+            np.arange(1, 13),
+            [all_evs],
+            figsize=(4, 3),
+            x_label='Mode Rank',
+            y_label='Explained Variance (%)',
+            legend=False,
+            save_dir=save_dir,
+            fig_name='all_ev',
+            suffix='.pdf'
+        )
 
 def plot_traces_analysis():
     from utils.data_utils import get_exp_names, get_subject_ids
     from copy import deepcopy
-
     exp_names = get_exp_names()
+
+    """
     config: NeuralPredictionConfig = experiments.compare_models_fc()[0][0]
     for key in exp_names.keys():
         all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
         config.exp_types = [key]
         plot_traces(deepcopy(config), f'spontaneous_FCs_{key}', all_titles, dmd_delay=20)
+    """
 
     config = experiments.compare_models_pc()[0][0]
     for key in exp_names.keys():

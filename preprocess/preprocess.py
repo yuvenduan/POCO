@@ -10,7 +10,7 @@ import analysis.plots as plots
 
 from configs.config_global import \
     RAW_DIR, EXP_TYPES, PROCESSED_DIR, RAW_DATA_SUFFIX, \
-    VISUAL_PROCESSED_DIR, VISUAL_RAW_DIR, STIM_RAW_DIR, STIM_PROCESSED_DIR
+    VISUAL_PROCESSED_DIR, VISUAL_RAW_DIR, STIM_RAW_DIR, STIM_PROCESSED_DIR, FIG_DIR
 from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
@@ -146,9 +146,20 @@ def process_data_matrix(
     data_dict['M'] = normalized
     
     normalized = normalized[roi_indices]
-    plot_delta_F(normalized, fig_dir=fig_dir)
-    data_dict['PC'] = run_pca(normalized, fig_dir=fig_dir)
-    plot_delta_F(data_dict['PC'], fig_dir=fig_dir, suffix='_PC')
+    plot_delta_F(normalized, fig_dir=fig_dir, exp_name=exp_name)
+    
+    data_dict['PC'] = run_pca(normalized, fig_dir=fig_dir, exp_name=exp_name)
+    plot_delta_F(data_dict['PC'], fig_dir=fig_dir, suffix='_PC', exp_name=exp_name)
+
+    # plot first 10 PCs
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(3, 10))
+    for i in range(10):
+        ax = plt.subplot(10, 1, i + 1)
+        ax.plot(data_dict['PC'][i])
+    plt.tight_layout()
+    sub_fig_dir = os.path.join(FIG_DIR, fig_dir)
+    plt.savefig(os.path.join(sub_fig_dir, f'{exp_name}_first_10_PCs.pdf'))
 
     for n_cluster in n_clusers:
         data_dict[f'FC_{n_cluster}'] = get_clustered_data(normalized, n_cluster)
@@ -157,7 +168,7 @@ def process_data_matrix(
 def process_spontaneous_activity():
     exp_names = get_exp_names()
     os.makedirs(PROCESSED_DIR, exist_ok=True)
-    normalize_mode = 'max'
+    normalize_mode = 'zscore'
 
     brain_areas = [ 
         'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
@@ -194,7 +205,7 @@ def process_spontaneous_activity():
                     roi_indices=None,
                     divide_baseline=True,
                     normalize_mode=normalize_mode,
-                    n_clusers=[100, 500],
+                    n_clusers=[],
                     exp_name=exp_name
                 )
                 data_dict.update(return_dict)
