@@ -262,7 +262,7 @@ def errorbar_plot(
 def grouped_plot(
     data_list,
     group_labels,
-    fig_size=(5, 3),
+    fig_size=(4, 3),
     fontsize=12,
     bar_labels=None,
     x_label=None,
@@ -282,6 +282,10 @@ def grouped_plot(
     style='violin',
     xlim=None,
     ylim=None,
+    xticks=None,
+    yticks=None,
+    xticks_labels=None,
+    yticks_labels=None,
     capsize=5,
     capthick=1.5,
     violin_alpha=0.5,
@@ -324,15 +328,17 @@ def grouped_plot(
 
         if style == 'violin':
             data = [np.array(val) for val in data]
-            parts = plt.violinplot(data, x_axis + offset, widths=bar_width, showmeans=True)
+            parts = plt.violinplot(data, x_axis + offset, widths=bar_width, showmeans=False, showextrema=False)
             for pc in parts['bodies']:
                 pc.set_facecolor(color)
                 pc.set_alpha(violin_alpha)
+            pc = parts['cmeans']
+            pc.set_edgecolor(color)
             
             for idx, (x, y) in enumerate(zip(x_axis, data)):
                 plt.scatter(
                     x + offset + np.linspace(-bar_width * 0.2, bar_width * 0.2, len(y)), y, 
-                    color=color, s=12, marker='x',
+                    color=color, s=18, marker='x',
                     label=attr if idx == 0 else None
                 )
 
@@ -363,6 +369,12 @@ def grouped_plot(
         plt.xlim(xlim)
     if ylim is not None:
         plt.ylim(ylim)
+    if xticks is not None:
+        plt.xticks(xticks)
+    plt.xticks(fontsize=fontsize, labels=xticks_labels)
+    if yticks is not None:
+        plt.yticks(yticks)
+    plt.yticks(fontsize=fontsize, labels=yticks_labels)    
 
     plt.xticks(fontsize=fontsize)
     plt.yticks(fontsize=fontsize)    
@@ -405,7 +417,6 @@ def histogram_plot(
     xlim=None,
     ylim=None,
     edgecolor='black'
-
 ):
     """
     Histogram plot for multiple distributions

@@ -420,9 +420,9 @@ def compare_unit_dropout():
     return configs
 
 model_list = [
-    'POYO_TOTEM', 'Linear_TOTEM', 'MLP_TOTEM', 'Transformer_TOTEM',
-    'POYO', 'Linear', 'MLP', 'Transformer', 
-    'AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM',
+    # 'POYO_TOTEM', 'Linear_TOTEM', 'MLP_TOTEM', 'Transformer_TOTEM',
+    # 'POYO', 'Linear', 'MLP', 'Transformer', 
+    # 'AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM',
     'Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN', 'TCN'
 ]
 
@@ -431,7 +431,7 @@ def compare_models_pc():
     config.experiment_name = 'compare_models'
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['spontaneous_pc', 'visual_pc', ]
+    config_ranges['dataset_label'] = ['spontaneous_pc', ]
     config_ranges['model_label'] = model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)

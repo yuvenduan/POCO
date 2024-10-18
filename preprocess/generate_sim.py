@@ -1,5 +1,7 @@
 import numpy as np
 import os
+import random
+import numpy as np
 
 from utils.curbd import threeRegionSim
 from configs.config_global import SIM_DIR
@@ -13,21 +15,25 @@ def run(
     ga = 2.0, # chaos factor
     noise_std = 0, # noise standard deviation,
     T = 3276.8,
-    sparsity = 1
+    sparsity = 1,
+    seed = 0
 ):
 
-    name = f'sim_{n}_{mode}_{ga}_{noise_std}'
+    random.seed(seed)
+    np.random.seed(seed)
+
+    name = f'sim_{n}_{mode}_{ga}_{noise_std}_s{seed}'
     if sparsity != 1:
         name += f'_sparsity_{sparsity}'
 
     frac_inter = 0 if mode == 1 else 0.05
     out = threeRegionSim(
         number_units=n, dtData=0.01, tau=0.1, T=10, 
-        fig_save_name=name + '.png', leadTime=5, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
+        fig_save_name=name + '.pdf', leadTime=5, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
     )
     out = threeRegionSim(
         number_units=n, dtData=0.01, tau=0.1, T=T, 
-        fig_save_name=name + f'_long.png', leadTime=500, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
+        fig_save_name=name + f'_long.pdf', leadTime=500, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
     )
 
     if mode == 1:
@@ -60,16 +66,20 @@ def run(
     data_dict['PC'] = act.T
     print(f"512-dim Explained variance: {cumulated[min(512, n * mode) - 1]}")
 
+    os.makedirs(SIM_DIR, exist_ok=True)
     np.savez(os.path.join(SIM_DIR, f'{name}.npz'), **data_dict)
 
 def save_sim_activity():
+
+    for n in [64, 128, 256, 384, 512, 1024, 1536, ]:
+        for seed in range(4):
+            run(mode=1, n=n, ga=1.8, noise_std=0, seed=seed)
+    return
 
     os.makedirs(SIM_DIR, exist_ok=True)
     n = 1500
     for sparsity in [1]:
         run(mode=1, n=n, ga=1.6, sparsity=sparsity)
-
-    return
 
     for n in [1536, ]:
         run(mode=1, n=n, ga=2.0, noise_std=0)

@@ -51,7 +51,7 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             plt.xlabel('PC')
             plt.ylabel('Contribution of Loss')
             plt.tight_layout()
-            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_contribution.png'))
+            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_contribution.pdf'))
             plt.close()
 
             # plot 2: (baseline_mse - mse) / baseline_mse
@@ -63,7 +63,7 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             plt.xlabel('PC')
             plt.ylabel('Improvement over copy baseline')
             plt.tight_layout()
-            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_improvement.png'))
+            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_improvement.pdf'))
             plt.close()
 
             # plot 2.5 use chance mse and mae as baseline
@@ -78,7 +78,7 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             plt.xlabel('PC')
             plt.ylabel('Improvement over baseline')
             plt.tight_layout()
-            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_improvement_chance.png'))
+            plt.savefig(os.path.join(config.save_path, f'{phase}_PC_loss_improvement_chance.pdf'))
             plt.close()
 
 
@@ -103,5 +103,8 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             x_label='Metric',
             y_label='Improvement over baseline',
             fig_size=(3, 3),
-            ylim=(0, None)
+            ylim=(0, None),
+            violin_alpha=0.3,
+            colors=['#17BEBB'],
+            yticks=[0, 0.5, 1],
         )

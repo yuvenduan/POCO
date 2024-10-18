@@ -372,7 +372,7 @@ class Simulation(NeuralDataset):
 
     def load_all_activities(self, config: NeuralPredictionConfig):
         
-        name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}'
+        name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{config.seed}'
         if config.sparsity != 1:
             name += f'_sparsity_{config.sparsity}'
         filename = os.path.join(SIM_DIR, f'{name}.npz')

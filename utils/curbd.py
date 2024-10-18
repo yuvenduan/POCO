@@ -515,7 +515,7 @@ def threeRegionSim(number_units=100,
         plt.rcParams.update({'font.size': 6})
 
         ax = fig.add_subplot(4, 3, 1)
-        ax.pcolormesh(tData, range(Na), Ra)
+        ax.pcolormesh(tData[: 10000: 5], range(Na), Ra[:, : 10000: 5])
         ax.set_title('RNN A - g={}'.format(ga))
 
         ax = fig.add_subplot(4, 3, 2)
@@ -569,6 +569,7 @@ def threeRegionSim(number_units=100,
             ax.set_title('Sequence Driver')
             plt.pause(0.05)
 
+        os.makedirs(os.path.join(FIG_DIR, 'sim'), exist_ok=True)
         fig_path = os.path.join(FIG_DIR, 'sim', fig_save_name)
         fig.savefig(fig_path)
     return out

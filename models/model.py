@@ -12,6 +12,7 @@ from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 from models.model_utils import get_rnn, get_pretrained_model, get_rnn_from_config
 from models.TOTEM.models.decode import XcodeYtimeDecoder
 from models.poyo import POYO
+from models.normalizer import MuStdWrapper, BatchedLinear
 from configs.config_global import DEVICE
 
 class AutoregressiveModel(nn.Module):
@@ -42,9 +43,12 @@ class AutoregressiveModel(nn.Module):
             nn.LayerNorm(config.hidden_size) if config.rnn_layernorm else nn.Identity(), 
             nn.Linear(config.hidden_size, size)
         ) for size in datum_size])
+        
         self.out_sizes = datum_size
         self.teacher_forcing = config.teacher_forcing
         self.target_mode = config.target_mode
+        self.normalizer = MuStdWrapper(config, datum_size)
+
         assert self.teacher_forcing, "Only support teacher forcing for now"
 
     def _forward(self, input):
@@ -82,6 +86,8 @@ class AutoregressiveModel(nn.Module):
         :param pred_step: number of steps to predict
         :return: list of tensors, each of shape (L + pred_step - 1, B, D)
         """
+        input = self.normalizer.normalize(input)
+
         for step in range(pred_step):
             preds = self._forward(input)
             # concatenate the prediction to the input, and use it as the input for the next step
@@ -92,6 +98,7 @@ class AutoregressiveModel(nn.Module):
             else:
                 raise ValueError(f"Unknown target mode {self.target_mode}")
 
+        preds = self.normalizer.unnormalize(preds)
         return preds
     
     def set_mode(self, mode):
@@ -153,6 +160,7 @@ class LatentModel(nn.Module):
         self.teacher_forcing = config.teacher_forcing
         self.train_tf_interval = config.tf_interval
         self.target_mode = config.target_mode
+        self.normalizer = MuStdWrapper(config, datum_size)
 
         assert self.teacher_forcing, "Only support teacher forcing for now"
         assert config.stimuli_dim == 0, "Stimuli not supported for now"
@@ -163,6 +171,7 @@ class LatentModel(nn.Module):
         """
 
         bsz = [xx.size(1) for xx in input]
+        input = self.normalizer.normalize(input)
         z = self.proj.obs_to_latent(input)
 
         if self.shared_backbone:
@@ -207,6 +216,7 @@ class LatentModel(nn.Module):
                 z[idx] = torch.stack(z_list)
 
         x = self.proj.latent_to_obs(z)
+        x = self.normalizer.unnormalize(x)
         return x
     
     def set_mode(self, mode):
@@ -290,43 +300,6 @@ class MultiFishSeqVAE(nn.Module):
     def set_mode(self, mode):
         pass
 
-class BatchedLinear(nn.Module):
-
-    def __init__(self, n_channels, in_size, out_size, bias=False, init='fan_in'):
-        # weight: n * out_size * in_size
-        # input: batch * n * in_size -> n * in_size * batch
-        # out: n * out_size * batch -> batch * n * out_size
-        super().__init__()
-        self.weight = nn.Parameter(torch.zeros(n_channels, out_size, in_size))
-        if init == 'one_hot':
-            nn.init.zeros_(self.weight)
-            self.weight.data[:, :, -1] = 1
-        elif init == 'fan_in':
-            bound = 1 / math.sqrt(in_size)
-            nn.init.uniform_(self.weight, -bound, bound)
-            # self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
-        elif init == 'fan_out':
-            bound = 1 / math.sqrt(out_size)
-            nn.init.uniform_(self.weight, -bound, bound)
-            # self.weight.data = self.weight[:, 0: 1, :] * torch.ones_like(self.weight)
-        elif init == 'zero':
-            nn.init.zeros_(self.weight)
-        else:
-            raise ValueError(f"Unknown init {init}")
-
-        if bias:
-            self.bias = nn.Parameter(torch.zeros(n_channels, out_size))
-
-    def forward(self, x):
-        # x: batch * n * in_size
-        # return: batch * n * out_size
-        x = x.permute(1, 2, 0)
-        x = torch.bmm(self.weight, x)
-        if hasattr(self, 'bias'):
-            x = x + self.bias.unsqueeze(2)
-        x = x.permute(2, 0, 1)
-        return x
-
 class Linear(nn.Module):
 
     def __init__(self, config: NeuralPredictionConfig, datum_size):
@@ -369,47 +342,6 @@ class Linear(nn.Module):
     
     def set_mode(self, mode):
         pass
-
-class MuStdModel(nn.Module):
-    def __init__(self, Tin, hidden_dim=64, datum_size=None, separate_projs=False):
-        super(MuStdModel, self).__init__()
-
-        self.linear = nn.Linear(Tin + 2, hidden_dim)
-        if not separate_projs:
-            self.proj = nn.Linear(hidden_dim, 2)
-        else:
-            self.proj = nn.ModuleList([BatchedLinear(size, hidden_dim, 2) for size in datum_size])
-        self.separate_projs = separate_projs
-
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        """Initiate parameters in the transformer model."""
-        for p in self.parameters():
-            if p.dim() > 1:
-                # nn.init.xavier_uniform_(p)
-                nn.init.zeros_(p)
-
-    def forward(self, x_list: torch.Tensor) -> torch.Tensor:
-        """
-        x: list of tensors, each of shape (L, B, D)
-        return: a tensor of shape (sum(B * D), 2), representing the predicted mean and std
-        """
-        results = []
-        for i, x in enumerate(x_list):
-            if x.size(1) == 0:
-                results.append(torch.zeros((0, 2), device=x.device))
-                continue
-            mean = torch.mean(x, dim=0, keepdim=True)
-            std = torch.sqrt(torch.var(x, dim=0, keepdim=True, unbiased=False) + 1e-5)
-            x = torch.cat((x, mean, std), dim=0) # L + 2, B, D
-            x = x.permute(1, 2, 0) # B, D, L + 2
-            x = self.linear(x)
-            x = F.relu(x)
-            proj = self.proj if not self.separate_projs else self.proj[i]
-            x = proj(x) # B, D, 2
-            results.append(x.reshape(-1, 2))
-        return torch.cat(results, dim=0)
 
 class Decoder(nn.Module):
     """

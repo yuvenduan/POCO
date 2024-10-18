@@ -92,7 +92,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.num_layers = 1
         self.teacher_forcing = True
         self.shared_backbone = True
-        self.rnn_layernorm = True
+        self.rnn_layernorm = False
 
         # rnn config
         self.hidden_size = 512
@@ -244,7 +244,7 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.use_eye_movements = False
         self.use_motor = False
 
-        self.max_batch = 20000
+        self.max_batch = 10000
         self.test_batch = 100000 # test on all available data 
         self.mem = 32
         self.do_analysis = False
