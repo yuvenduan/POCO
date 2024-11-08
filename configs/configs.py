@@ -223,6 +223,7 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.fc_dim = None # number of functional clusters to used for training; pc_dim will be ignored if this is not None
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
         self.sampling_freq = 1 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
+        self.sampling_mode = 'point'
         self.test_set_window_stride = 1 # larger stride will make the test set smaller but faster to evaluate
 
         # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
@@ -232,8 +233,9 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         # config for simulated data
         self.n_neurons = 512 # only used for simulated dataset: the number of neurons used for training
         self.n_regions = 1
-        self.ga = 2.0
+        self.ga = 1.8
         self.sim_noise_std = 0
+        self.sim_seed = 0
         self.portion_observable_neurons = 1 # only used for simulated dataset: the portion of neurons that are observable
         self.train_data_length = 1000000
         self.sparsity = 1

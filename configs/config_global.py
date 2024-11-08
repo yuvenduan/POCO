@@ -24,5 +24,6 @@ USE_CUDA = torch.cuda.is_available()
 DEVICE = torch.device("cuda" if USE_CUDA else "cpu")
 MAP_LOC = "cuda:0" if USE_CUDA else torch.device('cpu')
 LOG_LEVEL = logging.INFO
+MODEL_COLORS = {'Linear': '#003D5B', 'POYO': '#EDAE49', 'Predict-POYO': '#EDAE49', 'Latent_PLRNN': '#D1495B', 'AR_Transformer': '#00798C', 'TCN': '#ADD8E6', }
 
 EXP_TYPES = ['control', 'shocked', 'reshocked', 'ketamine']

@@ -115,7 +115,7 @@ def evaluate_performance(
 
         task_func.after_testing_callback(
             batch_info=extra_out, logger=logger, 
-            save_path=config.save_path, is_best=best, batch_num=i_b
+            save_path=config.save_path, is_best=best, batch_num=i_b, testing=testing
         )
 
 def model_train(config: SupervisedLearningBaseConfig):

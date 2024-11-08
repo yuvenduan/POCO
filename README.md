@@ -12,13 +12,17 @@ python run_preprocess.py
 ```
 to normalize calcium traces and do PCA. The processed data will be saved in <code>data/processed</code>. You can also edit <code>run_preprocess.py</code> to generate simulated data.
 
+Alternatively, you can put your own data in <code>data/...</code> and implement your own data processing pipeline like those in <code>datasets/zebrafish.py</code>. In particular, you can inherit from <code>NeuralDataset</code> class and implement <code>load_all_activities</code>, then define how to initialize the dataset in <code>datasets/data_sets.py</code> and add configs for the dataset in <code>configs/experiments.py/configure_dataset</code>.
+
 ### Usage
 
 To run an experiment, run:
 ```bash
 python main.py -t exp_name
 ```
-See <code>configs/experiments.py</code> for a list of available experiments. If you have multiple GPUs on your machine, you can add <code>-s</code> so that experiments can be run concurrently. If you are using a Slurm cluster, you can add <code>-c</code> so that experiments will be submitted to the cluster and use <code> -p ... </code> and <code> --acc ... </code> to designate partition and account name. During training, eval results and sample prediction visualization will be saved in <code>experiments/exp_name</code>. 
+Each experiment is defined as a function in <code>configs/experiments.py</code> that returns a dictionary of configurations. You can also define your own experiments with customized hyperparameters/datasets/model by adding a function. For a list of predefined hyperparameters, see <code>configs/configs.py</code>, where you can also add new hyparameters and use them in the dataset and model class. During training, eval results and sample prediction visualization will be saved in <code>experiments/exp_name</code>. 
+
+If you have multiple GPUs on your machine, you can add <code>-s</code> so that different runs can be run concurrently. If you are using a Slurm cluster, you can add <code>-c</code> so that jobs will be submitted to the cluster and use <code> -p ... </code> and <code> --acc ... </code> to designate partition and account name. 
 
 To analyze results, run:
 ```bash
@@ -36,7 +40,7 @@ python main.py -a test
 
 * <code>configs/configs.py</code> defines the base config, which could be changed in individual experiments in <code>configs/experiments.py</code>.
 * <code>model/model_utils.py</code> defines the model types and rnn types used in the experiments. 
-* <code>model/model.py</code> implements several model types including autoregressive models and latent dynamics models.
+* <code>model/model.py</code> implements several model types including autoregressive models and latent dynamics models (PLRNN), POYO.
 * <code>tasks/taskfunction.py</code> implements the neural prediction task
 * <code>datasets/zebrafish.py</code> implements the dataset for neural prediction, including how data is normalized, chunked, and partitioned into training and test sets.
 * <code>main.py</code> save config for each run in a experiment (and submit the jobs to cluster if with -c)

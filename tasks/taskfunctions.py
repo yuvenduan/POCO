@@ -43,7 +43,7 @@ class TaskFunction:
         """
         raise NotImplementedError
 
-    def after_testing_callback(self, batch_info: List[tuple], logger: Logger, save_path: str, is_best: bool, batch_num: int):
+    def after_testing_callback(self, batch_info: List[tuple], logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
         """
         An optional function called after the test stage
         :param batch_info: list of return values of task.roll(mode, data_batch, test=True) for batches of data in the test set
@@ -158,20 +158,22 @@ class NeuralPrediction(TaskFunction):
             task_loss += model.vq_loss
             self.vae_loss_list[phase].append(model.vq_loss.item())
         elif isinstance(model, Decoder):
+            pass # loss on predicted mu/std no longer used
             # here recon loss / vae loss denotes mean and std prediction loss
+            """
             assert self.loss_mode == 'prediction'
             mean_loss = F.mse_loss(model.mu, torch.cat(mean_list))
             std_loss = F.mse_loss(model.std, torch.cat(std_list))
             task_loss += (mean_loss + std_loss) * model.mu_std_loss_coef
             self.recon_loss_list[phase].append(mean_loss.item())
             self.vae_loss_list[phase].append(std_loss.item())
-
+            """
         if train_flag:
             return task_loss
         else:
             return task_loss, pred_num, task_loss.item() * pred_num
         
-    def after_testing_callback(self, save_path: str, batch_num: int, logger: Logger, is_best: bool, **unused):
+    def after_testing_callback(self, batch_info: List[tuple], logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
 
         # compute mean loss for the prediction part
         for phase in ['train', 'val']:
@@ -194,6 +196,8 @@ class NeuralPrediction(TaskFunction):
                 sum_mse += self.sum_mse[phase][idx].sum()
                 sum_mae += self.sum_mae[phase][idx].sum()
 
+            if phase == 'val':
+                logger.log_tabular(f'{phase}_pred_num', sum_pred_num)
             logger.log_tabular(f'{phase}_mse', sum_mse / sum_pred_num)
             logger.log_tabular(f'{phase}_mae', sum_mae / sum_pred_num)
             
@@ -241,7 +245,7 @@ class NeuralPrediction(TaskFunction):
                     'pred_num': self.pred_num[phase],
                     'sample_trials': self.sample_trials[phase]
                 }
-                np.save(os.path.join(save_path, f'{phase}_best_info.npy'), info)
+                np.save(os.path.join(save_path, f'{phase if not testing else "test"}_best_info.npy'), info)
 
         self._init_info()
     

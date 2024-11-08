@@ -53,7 +53,7 @@ class NeuralDataset(tud.Dataset):
 
         animal_idx = 0
         self.sampling_freq = config.sampling_freq
-        self.sampling_mode = 'avg'
+        self.sampling_mode = config.sampling_mode
         all_activities = self.load_all_activities(config)
 
         for all_activity in all_activities:
@@ -372,7 +372,7 @@ class Simulation(NeuralDataset):
 
     def load_all_activities(self, config: NeuralPredictionConfig):
         
-        name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{config.seed}'
+        name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{config.sim_seed}'
         if config.sparsity != 1:
             name += f'_sparsity_{config.sparsity}'
         filename = os.path.join(SIM_DIR, f'{name}.npz')

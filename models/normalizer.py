@@ -91,8 +91,9 @@ class MuStdWrapper(nn.Module):
 
         self.Tin = config.seq_length - config.pred_length
         self.normalize_input = config.normalize_input
-        self.mu_std_module_mode = config.mu_std_module_mode
+        self.mu_std_module_mode = config.mu_std_module_mode if self.normalize_input else 'none'
         self.datum_size = datum_size
+        print(f"Normalizer: normalize_input {self.normalize_input}, mu_std_module_mode {self.mu_std_module_mode}")
 
         self.mustd = MuStdModel(self.Tin, datum_size=datum_size, separate_projs=config.mu_std_separate_projs)
 
@@ -106,6 +107,7 @@ class MuStdWrapper(nn.Module):
         self.L = L = x[0].size(0)
 
         mu, std = self.mustd(x).chunk(2, dim=1)
+
         x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
         x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
 
@@ -130,7 +132,7 @@ class MuStdWrapper(nn.Module):
         self.params = (mu, std)
         if not concat_output:
             split_size = [b * d for b, d in zip(bsz, self.datum_size)]
-            x = torch.split(x, split_size, dim=0)
+            x = torch.split(x.transpose(0, 1), split_size, dim=1) # L, sum(B * D) -> [L, B * D]
             x = [xx.reshape(L, b, d) for xx, b, d in zip(x, bsz, self.datum_size)]
 
         return x

@@ -379,8 +379,6 @@ class Decoder(nn.Module):
             self.embed_dim = config.population_token_dim
 
         self.datum_size = datum_size
-        self.mu_std_loss_coef = config.mu_std_loss_coef
-        self.normalize_input = config.normalize_input
         self.mu_std_module_mode = config.mu_std_module_mode
         self.embed_length = 1
 
@@ -408,7 +406,7 @@ class Decoder(nn.Module):
             self.embed_length = 1 if poyo_query_mode == 'single' else config.pred_length
             self.decoder = POYO(
                 input_dim=self.embed_dim, 
-                dim=config.decoder_hidden_size, 
+                dim=config.decoder_hidden_size,
                 depth=config.decoder_num_layers, 
                 self_heads=config.decoder_num_heads,
                 datum_size=datum_size,
@@ -436,7 +434,7 @@ class Decoder(nn.Module):
         else:
             self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in datum_size])
 
-        self.mustd = MuStdModel(self.Tin, datum_size=datum_size, separate_projs=config.mu_std_separate_projs)
+        self.normalizer = MuStdWrapper(config, datum_size)
         
     def forward(self, x, pred_step=1, unit_indices=None, unit_timestamps=None):
         """
@@ -447,14 +445,7 @@ class Decoder(nn.Module):
 
         bsz = [xx.size(1) for xx in x]
         L = x[0].size(0)
-
-        mu, std = self.mustd(x).chunk(2, dim=1)
-        x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
-       
-        x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
-
-        if self.normalize_input:
-            x = (x - x_mean) / (x_std + 1e-6)
+        x = self.normalizer.normalize(x, concat_output=True)
 
         if self.encoder_type == 'vqvae':
             with torch.no_grad():
@@ -509,38 +500,14 @@ class Decoder(nn.Module):
 
         else:
             embed = self.decoder(out) # sum(B * D), embed
-        
-        if self.mu_std_module_mode == 'original':
-            mu, std = x_mean, x_std
-        elif self.mu_std_module_mode == 'learned':
-            pass
-        elif self.mu_std_module_mode == 'combined':
-            mu, std = mu + x_mean, std + x_std
-        elif self.mu_std_module_mode == 'combined_mu_only':
-            mu = mu + x_mean
-            std = torch.ones_like(std)
-        elif self.mu_std_module_mode == 'none':
-            mu = torch.zeros_like(mu)
-            std = torch.ones_like(std)
-        else:
-            raise ValueError(f"Unknown mu_std_module_mode {self.mu_std_module_mode}")
-
-        self.mu = mu.clone().squeeze(-1)
-        self.std = std.clone().squeeze(-1)
 
         # partition embed to a list of tensors, each of shape (B, D, embed)
         split_size = [b * d * self.embed_length for b, d in zip(bsz, d_list)]
         embed = torch.split(embed, split_size, dim=0) # [B * D, embed]
         embed = [xx.reshape(b, d, self.embed_length, self.embedding_dim) for xx, b, d in zip(embed, bsz, d_list)]
 
-        split_size = [b * d for b, d in zip(bsz, self.datum_size)]
-        mu = torch.split(mu, split_size, dim=0) # [B * D, 1]
-        mu = [xx.reshape(b, d) for xx, b, d in zip(mu, bsz, self.datum_size)]
-        std = torch.split(std, split_size, dim=0) # [B * D, 1]
-        std = [xx.reshape(b, d) for xx, b, d in zip(std, bsz, self.datum_size)]
-
         preds = []
-        for i, (e, m, s, d) in enumerate(zip(embed, mu, std, self.datum_size)):
+        for i, (e, d) in enumerate(zip(embed, self.datum_size)):
             if e.shape[1] < d:
                 assert e.shape[1] == 1
                 e = e.repeat(1, d, 1, 1)
@@ -561,11 +528,9 @@ class Decoder(nn.Module):
                 pred: torch.Tensor = proj(e.squeeze(2)) # B, D, pred_length
             assert pred.shape[2] == pred_step 
             
-            # pred = (pred - pred.mean(dim=-1, keepdims=True)) / pred.std(dim=-1, keepdims=True) # normalized
-            if self.mu_std_module_mode != 'none':
-                pred = pred * s.unsqueeze(-1) + m.unsqueeze(-1)
             preds.append(pred.permute(2, 0, 1))
 
+        preds = self.normalizer.unnormalize(preds)
         return preds
 
 class MixedModel(nn.Module):

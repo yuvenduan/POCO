@@ -2,7 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+
 from configs.config_global import FIG_DIR
+from collections.abc import Iterable
 
 def adjust_figure(ax=None):
     if ax is None:
@@ -107,12 +109,12 @@ def error_plot(
         if y_offsets is not None:
             mean += y_offsets[i] * np.ones_like(mean)
 
-        if errormode == 'std':
+        if errormode == 'none' or not isinstance(data[0], Iterable) or len(data[0]) == 1:
+            error = np.zeros_like(mean)
+        elif errormode == 'std':
             error = np.array([np.std(val, ddof=1) for val in data])
         elif errormode == 'sem':
             error = np.array([get_sem(val) for val in data])
-        elif errormode == 'none':
-            error = np.zeros_like(mean)
         else:
             raise NotImplementedError('error mode not implemented')
 
@@ -207,12 +209,12 @@ def error_plot(
         plt.title(title, fontsize=fontsize)
 
     if xticks is not None:
-        plt.xticks(xticks)
-    plt.xticks(fontsize=fontsize, labels=xticks_labels)
+        plt.xticks(xticks, labels=xticks_labels)
+    plt.xticks(fontsize=fontsize)
 
     if yticks is not None:
-        plt.yticks(yticks)
-    plt.yticks(fontsize=fontsize, labels=yticks_labels)    
+        plt.yticks(yticks, labels=yticks_labels)
+    plt.yticks(fontsize=fontsize)
 
     if xlim is not None:
         plt.xlim(xlim)
@@ -332,8 +334,8 @@ def grouped_plot(
             for pc in parts['bodies']:
                 pc.set_facecolor(color)
                 pc.set_alpha(violin_alpha)
-            pc = parts['cmeans']
-            pc.set_edgecolor(color)
+            # pc = parts['cmeans']
+            # pc.set_edgecolor(color)
             
             for idx, (x, y) in enumerate(zip(x_axis, data)):
                 plt.scatter(
