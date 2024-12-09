@@ -31,8 +31,8 @@ class TaskFunction:
 
     def roll(self, model: nn.Module, data_batch: tuple, phase: str = 'train'):
         """
-        Phase can be 'train', 'val', or 'test'
-        In the training mode (train=True), this method should return a scalar representing the training loss
+        Phase can be 'train', 'val', or 'test'.
+        In the training mode (train=True), this method should return a scalar representing the training loss.
         In the eval or test mode, this method should return a tuple of at least 3 elements: 
         (
             test loss, 
@@ -46,15 +46,18 @@ class TaskFunction:
     def after_testing_callback(self, batch_info: List[tuple], logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
         """
         An optional function called after the test stage
+
         :param batch_info: list of return values of task.roll(mode, data_batch, test=True) for batches of data in the test set
-        :param is_best: whether the test result is the best one
+        :param is_best: whether the validation result is the best one; always True for the test set (when testing=True)
         :param batch_num: number of batches used for training
+        :param testing: whether the test is on the test set
         """
         pass
 
     def after_training_callback(self, config, model):
         """
         An optional function called after training is done
+        
         :param model: the best model
         """
         pass
@@ -205,6 +208,9 @@ class NeuralPrediction(TaskFunction):
 
                 # visualize prediction of the first/last dimension for 10 random trials
                 for pc in [0, 20, 50, -1]:
+                    if pc >= max(self.datum_size):
+                        continue
+
                     preds = []
                     targets = []
 
@@ -238,7 +244,9 @@ class NeuralPrediction(TaskFunction):
                     )
 
         if is_best:
-            for phase in ['val']:
+            for phase in ['train', 'val']:
+                if testing and phase != 'val':
+                    continue
                 info = {
                     'mse': self.sum_mse[phase],
                     'mae': self.sum_mae[phase],
@@ -250,6 +258,5 @@ class NeuralPrediction(TaskFunction):
         self._init_info()
     
     def after_training_callback(self, config, model):
-        
         if not self.do_analysis:
             return

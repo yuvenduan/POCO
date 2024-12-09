@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from configs.config_global import ROOT_DIR, LOG_LEVEL, FIG_DIR, MODEL_COLORS
+from configs.config_global import FIG_DIR
 from utils.config_utils import configs_dict_unpack, configs_transpose
-from analysis import plots, analyze_performance
+from analysis import plots, analyze_performance, analyze_embedding
 from configs import experiments
 from configs.configs import NeuralPredictionConfig
 from datasets.zebrafish import get_baseline_performance, Zebrafish, Simulation, VisualZebrafish
@@ -114,7 +114,6 @@ def compare_model_training_curves(
     plot_model_lists = None,
     plot_train_test_curve = False,
     show_test_performance = False,
-    colors = None
 ):
     """
     Compare the train/test loss curves of different models, also save the train/val loss curves for each model
@@ -180,13 +179,7 @@ def compare_model_training_curves(
             plot_train_performance = [train_performance[i] for i in indices]
             plot_model_list = [model_list[i] for i in indices]
 
-            colors = []
-            for i, model in enumerate(plot_model_list):
-                if model in MODEL_COLORS:
-                    colors.append(MODEL_COLORS[model])
-                else:
-                    colors.append('C' + str(i + 1))
-
+            colors = plots.get_model_colors(plot_model_list)
             plots.error_plot(
                 x_axis,
                 plot_train_performance,
@@ -277,12 +270,7 @@ def compare_param_analysis(
             curves = [curves[i] for i in indices]
             model_list = plot_model_list
 
-        colors = []
-        for i, model in enumerate(model_list):
-            if model in MODEL_COLORS:
-                colors.append(MODEL_COLORS[model])
-            else:
-                colors.append('C' + str(i + 1))
+        colors = plots.get_model_colors(model_list)
         
         plots.error_plot(
             param_list,
@@ -336,7 +324,7 @@ def sim_compare_train_length_analysis():
     baseline_performances = [
         get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'test')['avg_copy_mse'] 
             for i in range(len(n_neurons))]
-    colors = [MODEL_COLORS[model] for model in model_list]
+    colors = plots.get_model_colors(model_list)
     
     for i, n in enumerate(n_neurons):
         loss_lists = []
@@ -377,7 +365,7 @@ def sim_compare_train_length_analysis():
         min_lengths = []
         for i, n in enumerate(n_neurons):
             # find the first length that is below the threshold
-            min_length = 65536
+            min_length = 131072
             for j, length in enumerate(train_lengths):
                 if mean_performance[model][i][j] < baseline_performances[i] * threshold:
                     min_length = length
@@ -389,7 +377,7 @@ def sim_compare_train_length_analysis():
     def draw_fit(plt, x_axis, linewidth, capsize, capthick):
         # draw y = 2x - 6 for x in [7, 10.5]
         x_axis = np.linspace(7, 10.5, 100)
-        plt.plot(x_axis, [2 * x - 6.1 for x in x_axis], color='gray', linestyle='--', linewidth=linewidth, label='y = 2x - 6')
+        plt.plot(x_axis, [2 * x - 5.1 for x in x_axis], color='gray', linestyle='--', linewidth=linewidth, label='y = 2x - 5')
 
     # for each model, plot the minimum length that reaches the threshold vs. the number of neurons
     plots.error_plot(
@@ -482,12 +470,12 @@ def compare_models_single_neuron_analysis():
 
 def compare_models_individual_region_analysis():
     cfgs = experiments.compare_models_individual_region()
-    model_list = experiments.model_list
+    model_list = experiments.selected_model_list
     compare_model_training_curves(
-        cfgs, 'compare_models_individual_region', 
+        cfgs, 'compare_models_individual_region',
         model_list=model_list, 
         mode_list=['l_LHb', 'l_MHb', 'l_dthal', 'l_gc', 'l_raphe', 'l_vent', 'l_vthal', ],
-        plot_model_lists=plot_lists,
+        # plot_model_lists=plot_lists,
         plot_train_test_curve=False
     )
 
@@ -685,7 +673,7 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, key='val_mse'):
 def compare_num_animals_analysis():
     per_animal_cfgs = experiments.per_animal_pc()
     model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
-    colors = [MODEL_COLORS[model] for model in model_list]
+    colors = plots.get_model_colors(model_list)
     per_animal_performance = get_weighted_performance(
         per_animal_cfgs, len(model_list), 19, range(19))
     
@@ -933,14 +921,38 @@ def plot_traces_analysis():
     
 
 def detailed_performance_analysis():
+    cfgs = experiments.compare_pc_dim()
+    dim = [1, 4, 32, 128, 512, 2048, ]
+    for i_model, model in enumerate(['Linear', 'Latent_PLRNN', 'POYO']):
+        sub_cfgs = {key: cfgs[key][i_model * len(dim): (i_model + 1) * len(dim)] for key in cfgs.keys()}
+        analyze_performance.compare_models(sub_cfgs, dim, sub_dir=f'pc_dim_{model}', config_filter='pc_dim')
+
     cfgs = experiments.compare_models_pc()
-    for seed, cfg_list in cfgs.items():
-        for cfg in cfg_list:
-            if cfg.model_label in experiments.selected_model_list:
-                analyze_performance.analyze_predictivity(cfg)
+    model_list = ['POYO', 'Linear']
+    analyze_performance.compare_models(cfgs, model_list, sub_dir='spontaneous_pc')
 
     cfgs = experiments.compare_models_sim_pc()
-    for seed, cfg_list in cfgs.items():
-        for cfg in cfg_list:
-            if cfg.model_label in experiments.selected_model_list:
-                analyze_performance.analyze_predictivity(cfg)
+    analyze_performance.compare_models(cfgs, model_list, sub_dir='sim_pc')
+
+def poyo_embedding_analysis():
+    """
+    cfgs = experiments.compare_models_pc()
+    model_list = ['POYO', ]
+    for seed in cfgs.keys():
+        for cfg in cfgs[seed]:
+            if cfg.model_label in model_list:
+                analyze_embedding.visualize_embedding(cfg)
+
+    cfgs = experiments.compare_models_sim_pc()
+    for seed in cfgs.keys():
+        for cfg in cfgs[seed]:
+            if cfg.model_label in model_list:
+                analyze_embedding.visualize_embedding(cfg)
+    """
+
+    cfgs = experiments.compare_models_single_neuron()
+    model_list = ['POYO', ]
+    for seed in cfgs.keys():
+        for cfg in cfgs[seed]:
+            if cfg.model_label in model_list:
+                analyze_embedding.visualize_embedding(cfg, methods=['PCA', 'UMAP'])

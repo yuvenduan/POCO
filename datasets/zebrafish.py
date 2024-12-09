@@ -134,6 +134,9 @@ class NeuralDataset(tud.Dataset):
     # reimplement get chance performance to reduce memory usage (by keeping only the sum of error and count)
         
     def get_detailed_chance_performance(self):
+        """
+        See get_baseline_performance for explanation of the return value
+        """
         assert self.stimuli_dim == 0
         assert self.target_mode == 'raw'
 
@@ -434,6 +437,36 @@ class VisualZebrafish(NeuralDataset):
         return all_activities
     
 def get_baseline_performance(config, phase='train'):
+    """
+    Get the baseline performance for the dataset
+
+    :param config: the config object
+    :param phase: 'train', 'val' or 'test'
+    :return: a dict containing the baseline performance, contains the following keys:
+    'pred_num': 
+        list of arrays, each has shape [d], number of trials for each channel of each animal
+    'copy_mse', 'copy_mae': 
+        list of arrays, each has shape [d], sum of mse/mae of the copy baseline
+    'chance_mse', 'chance_mae': 
+        list of arrays, each has shape [d], sum of mse/mae of the chance baseline
+    'animal_chance_mse', 'animal_chance_mae': 
+        list of floats, mse/mae for each animal
+    'animal_copy_mse', 'animal_copy_mae': 
+        list of floats, mse/mae for each animal
+    'avg_copy_mse', 'avg_copy_mae': 
+        float, average mse/mae across all animals
+    'avg_chance_mse', 'avg_chance_mae': 
+        float, average mse/mae across all animals
+    'mean_copy_mse', 'mean_copy_mae': 
+        array of shape [d], mean mse/mae for each PC
+    'mean_chance_mse', 'mean_chance_mae': 
+        array of shape [d], mean mse/mae for each PC
+    """
+
+    if phase == 'train':
+        phase = 'val'
+        print("warning: using val set to calculate baseline performance for training set to save compute")
+
     config.show_chance = True
     if config.dataset == 'zebrafish':
         dataset = Zebrafish(config, phase=phase)
@@ -441,5 +474,7 @@ def get_baseline_performance(config, phase='train'):
         dataset = Simulation(config, phase=phase)
     elif config.dataset == 'zebrafish_visual':
         dataset = VisualZebrafish(config, phase=phase)
+    else:
+        raise NotImplementedError(config.dataset)
 
     return dataset.baseline

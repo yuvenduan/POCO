@@ -3,8 +3,17 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 
-from configs.config_global import FIG_DIR
+from configs.config_global import FIG_DIR, MODEL_COLORS
 from collections.abc import Iterable
+
+def get_model_colors(model_list):
+    colors = []
+    for i, model in enumerate(model_list):
+        if model in MODEL_COLORS:
+            colors.append(MODEL_COLORS[model])
+        else:
+            colors.append('C' + str(i + 1))
+    return colors
 
 def adjust_figure(ax=None):
     if ax is None:
@@ -59,6 +68,8 @@ def error_plot(
     legend_title=None,
     xticks=None,
     yticks=None,
+    xscale='linear',
+    yscale='linear',
     xticks_labels=None,
     yticks_labels=None,
     linewidth=2,
@@ -83,6 +94,7 @@ def error_plot(
 ):
     """
     A generic error bar plot
+
     :param x_axis: A list representing the x-axis, or a list of lists representing x-axis for each curve
     :param data_list: A list of curves to plot,
         of size (num_curves, num_points, num_seeds)
@@ -215,6 +227,9 @@ def error_plot(
     if yticks is not None:
         plt.yticks(yticks, labels=yticks_labels)
     plt.yticks(fontsize=fontsize)
+
+    plt.xscale(xscale)
+    plt.yscale(yscale)
 
     if xlim is not None:
         plt.xlim(xlim)
