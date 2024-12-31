@@ -6,4 +6,5 @@
 #SBATCH -p test
 #SBATCH -e ./sbatch/slurm-%j.out
 #SBATCH -o ./sbatch/slurm-%j.out
+conda activate metafish
 python run_preprocess.py

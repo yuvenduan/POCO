@@ -7,7 +7,7 @@ import umap
 
 from analysis.plots import error_plot, grouped_plot, get_model_colors
 from configs.configs import NeuralPredictionConfig
-from datasets.zebrafish import get_baseline_performance
+from datasets.datasets import get_baseline_performance
 from analysis.plots import grouped_plot, errorbar_plot
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE

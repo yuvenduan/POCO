@@ -3,8 +3,9 @@ import os
 
 from analysis.plots import error_plot, grouped_plot, get_model_colors
 from configs.configs import NeuralPredictionConfig
-from datasets.zebrafish import get_baseline_performance
+from datasets.datasets import get_baseline_performance
 from analysis.plots import grouped_plot, errorbar_plot
+from configs.config_global import FIG_DIR
 
 import matplotlib.pyplot as plt
 
@@ -169,10 +170,31 @@ def analyze_predictivity(config: NeuralPredictionConfig):
 
     return ret
 
+def analyze_predictivity_all(cfgs: dict, plot_phases=['train', 'val', 'test']):
+    info_list = [] # list of dicts, each dict is the return value of analyze_predictivity for one model
+
+    for i in range(len(cfgs[0])):
+        result_list = []
+
+        for seed, cfg_list in cfgs.items():
+            cfg: NeuralPredictionConfig = cfg_list[i]
+            ret = analyze_predictivity(cfg)
+            result_list.append(ret)
+        
+        # stack the results slong the last axis
+        info_dict = {}
+        for phase in plot_phases:
+            info_dict[phase] = {}
+            for key in result_list[0][phase].keys():
+                info_dict[phase][key] = np.stack([x[phase][key] for x in result_list], axis=-1)
+        info_list.append(info_dict)
+
+    return info_list
+
 def compare_models(cfgs: dict, model_list: list, sub_dir='', 
                    save_dir='compare_detailed_performance', plot_phases=['train', 'val', 'test'], config_filter='model_label'):
     
-    save_dir = os.path.join(save_dir, sub_dir)
+    save_dir = os.path.join(FIG_DIR, save_dir, sub_dir)
     os.makedirs(save_dir, exist_ok=True)
 
     info_list = [] # list of dicts, each dict is the return value of analyze_predictivity for one model

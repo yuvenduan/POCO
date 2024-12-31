@@ -32,7 +32,6 @@ def get_subject_ids():
 
 def get_stim_exp_names():
     exp_names = {
-        'control': ['c02'],
-        'stim': ['e01', 'e02', 'e03']
+        'control': [f'c0{x}' for x in range(4)],
     }
     return exp_names

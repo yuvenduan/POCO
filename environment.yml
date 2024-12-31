@@ -17,3 +17,5 @@ dependencies:
   - conda-forge::einops
   - conda-forge::torchmetrics
   - conda-forge::pytorch-lightning
+  - pip:
+    - mat73

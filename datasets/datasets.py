@@ -2,7 +2,7 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'Simulation', 'VisualZebrafish']
+__all__ = ['Zebrafish', 'Simulation', 'VisualZebrafish', 'StimZebrafish', 'Celegans', 'get_baseline_performance']
 
 import torch
 import torch.utils.data as tud
@@ -15,8 +15,8 @@ import time
 
 from tqdm import tqdm
 from configs.configs import NeuralPredictionConfig
-from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR
-from utils.data_utils import get_exp_names, get_subject_ids
+from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR
+from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names
 
 class NeuralDataset(tud.Dataset):
 
@@ -319,6 +319,51 @@ class NeuralDataset(tud.Dataset):
 
 class Zebrafish(NeuralDataset):
 
+    all_regions = [
+        'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
+        'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
+    ]
+
+    def get_activity(self, filename, config: NeuralPredictionConfig):
+        """
+        Load the neural activity from the file
+        Based on the config, return the activity of specific brain regions, the average activity of all brain regions, or principal components of whole-brain activity
+        """
+        with np.load(filename) as fishdata:
+            if config.pc_dim is None and config.fc_dim is None:
+                roi_indices = [fishdata[region] for region in self.all_regions]
+                
+                if config.brain_regions == 'all':
+                    # use all brain regions
+                    all_activity: np.ndarray = fishdata['M']
+                elif config.brain_regions == 'average':
+                    # use average activity of all brain regions
+                    all_activity = np.empty((len(self.all_regions), fishdata['M'].shape[1]))
+                    for i, roi_index in enumerate(roi_indices):
+                        if np.sum(roi_index) == 0:
+                            all_activity[i] = np.zeros((fishdata['M'].shape[1], ))
+                        else:
+                            all_activity[i] = fishdata['M'][roi_index].mean(axis=0)
+                    assert config.normalize_mode == 'zscore', 'Recommend using zscore normalization when using averaged activity'
+                else:
+                    # use specific brain regions
+                    if not isinstance(config.brain_regions, (list, tuple)):
+                        config.brain_regions = [config.brain_regions]
+                    use_indices = np.zeros_like(roi_indices[0])
+                    for region in config.brain_regions:
+                        region = 'in_' + region
+                        assert region in self.all_regions, f'Invalid brain region {region}'
+                        use_indices |= roi_indices[self.all_regions.index(region)]
+                    all_activity: np.ndarray = fishdata['M'][use_indices]
+            elif config.fc_dim is not None:
+                assert config.brain_regions == 'all', 'Only support using all brain regions when using FC'
+                all_activity: np.ndarray = fishdata[f'FC_{config.fc_dim}']
+            else:
+                assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
+                all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
+        
+        return all_activity
+
     def load_all_activities(self, config: NeuralPredictionConfig):
         exp_names = get_exp_names()
         all_activities = []
@@ -326,51 +371,59 @@ class Zebrafish(NeuralDataset):
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
                 if config.animal_ids != 'all' and i_exp not in config.animal_ids:
                     continue
-
                 filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
-
-                with np.load(filename) as fishdata:
-                    if config.pc_dim is None and config.fc_dim is None:
-                        all_regions = [
-                            'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
-                            'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
-                        ]
-                        roi_indices = [fishdata[region] for region in all_regions]
-                        
-                        if config.brain_regions == 'all':
-                            # use all brain regions
-                            all_activity: np.ndarray = fishdata['M']
-                        elif config.brain_regions == 'average':
-                            # use average activity of all brain regions
-                            all_activity = np.empty((len(all_regions), fishdata['M'].shape[1]))
-                            for i, roi_index in enumerate(roi_indices):
-                                if np.sum(roi_index) == 0:
-                                    all_activity[i] = np.zeros((fishdata['M'].shape[1], ))
-                                else:
-                                    all_activity[i] = fishdata['M'][roi_index].mean(axis=0)
-                            assert config.normalize_mode == 'zscore', 'Recommend using zscore normalization when using averaged activity'
-                        else:
-                            # use specific brain regions
-                            if not isinstance(config.brain_regions, (list, tuple)):
-                                config.brain_regions = [config.brain_regions]
-                            use_indices = np.zeros_like(roi_indices[0])
-                            for region in config.brain_regions:
-                                region = 'in_' + region
-                                assert region in all_regions, f'Invalid brain region {region}'
-                                use_indices |= roi_indices[all_regions.index(region)]
-                            all_activity: np.ndarray = fishdata['M'][use_indices]
-                    elif config.fc_dim is not None:
-                        assert config.brain_regions == 'all', 'Only support using all brain regions when using FC'
-                        all_activity: np.ndarray = fishdata[f'FC_{config.fc_dim}']
-                    else:
-                        assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
-                        all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
-                    
-                    all_activity = self.downsample(all_activity)
-                    all_activities.append(all_activity)
+                all_activity = self.get_activity(filename, config)
+                all_activity = self.downsample(all_activity)
+                all_activities.append(all_activity)
         
         return all_activities
     
+class StimZebrafish(Zebrafish):
+
+    all_regions = [
+        'in_l_LHb', 'in_l_MHb', 'in_l_cerebellum', 'in_l_di', 'in_l_dthal', 'in_l_hind', 'in_l_meso', 'in_l_preoptic', 'in_l_raphe', 'in_l_tectum', 'in_l_tel', 'in_l_vthal', 
+        'in_r_LHb', 'in_r_MHb', 'in_r_cerebellum', 'in_r_di', 'in_r_dthal', 'in_r_hind', 'in_r_meso', 'in_r_preoptic', 'in_r_raphe', 'in_r_tectum', 'in_r_tel', 'in_r_vthal'
+    ]
+
+    def load_all_activities(self, config: NeuralPredictionConfig):
+        exp_names = get_stim_exp_names()
+        all_activities = []
+        for exp_type in config.exp_types:
+            for i_exp, exp_name in enumerate(exp_names[exp_type]):
+                if config.animal_ids != 'all' and i_exp not in config.animal_ids:
+                    continue
+
+                filename = os.path.join(STIM_PROCESSED_DIR, exp_name + '.npz')
+                all_activity = self.get_activity(filename, config)
+                all_activity = self.downsample(all_activity)
+                all_activities.append(all_activity)
+        
+        return all_activities
+    
+class Celegans(NeuralDataset):
+
+    def get_activity(self, filename, config: NeuralPredictionConfig):
+        """
+        Load the neural activity from the file
+        """
+        with np.load(filename) as fishdata:
+            assert config.fc_dim is None, 'Only support using PC for C. elegans data'
+            if config.pc_dim is None:
+                all_activity: np.ndarray = fishdata['M']
+            else:
+                assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
+                all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
+        return all_activity
+
+    def load_all_activities(self, config: NeuralPredictionConfig):
+        all_activity = []
+        for idx in range(5):
+            if config.animal_ids != 'all' and idx not in config.animal_ids:
+                continue
+            filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{idx}.npz')
+            all_activity.append(self.get_activity(filename, config))
+        return all_activity
+
 class Simulation(NeuralDataset):
 
     def load_all_activities(self, config: NeuralPredictionConfig):
@@ -474,6 +527,8 @@ def get_baseline_performance(config, phase='train'):
         dataset = Simulation(config, phase=phase)
     elif config.dataset == 'zebrafish_visual':
         dataset = VisualZebrafish(config, phase=phase)
+    elif config.dataset == 'zebrafish_stim':
+        dataset = StimZebrafish(config, phase=phase)
     else:
         raise NotImplementedError(config.dataset)
 

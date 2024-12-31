@@ -10,13 +10,17 @@ TCH_SEED = 3407
 ROOT_DIR = osp.dirname(osp.dirname(osp.abspath(__file__)))
 FIG_DIR = osp.join(ROOT_DIR, 'figures')
 DATA_DIR = os.path.join(ROOT_DIR, 'data')
+
 RAW_DIR = os.path.join(DATA_DIR, 'raw')
 STIM_RAW_DIR = os.path.join(DATA_DIR, 'raw_stim')
 VISUAL_RAW_DIR = os.path.join(DATA_DIR, 'raw_visual')
+CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans')
+
 RAW_DATA_SUFFIX = '_CNMF_compressed.h5'
 PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zscored')
 VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual_zscored')
 STIM_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_stim_zscored')
+CELEGANS_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_celegans')
 SIM_DIR = osp.join(DATA_DIR, 'simulations')
 
 # device to run algorithm on

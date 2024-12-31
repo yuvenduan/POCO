@@ -9,7 +9,7 @@ from utils.config_utils import configs_dict_unpack, configs_transpose
 from analysis import plots, analyze_performance, analyze_embedding
 from configs import experiments
 from configs.configs import NeuralPredictionConfig
-from datasets.zebrafish import get_baseline_performance, Zebrafish, Simulation, VisualZebrafish
+from datasets.datasets import get_baseline_performance, Zebrafish, Simulation, VisualZebrafish
 
 def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=None, start=0):
 
@@ -444,6 +444,40 @@ def compare_models_pc_analysis():
         plot_train_test_curve=False,
     )
 
+def compare_models_stim_analysis():
+    cfgs = experiments.compare_models_stim()
+    model_list = experiments.selected_model_list
+    plot_lists = {}
+    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
+    compare_model_training_curves(
+        cfgs, 'compare_models_stim',
+        model_list=model_list,
+        mode_list=['avg', 'pc', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
+    )
+
+def compare_models_celegans_analysis():
+    cfgs = experiments.compare_models_celegans()
+    model_list = experiments.selected_model_list
+    plot_lists = {}
+    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
+    compare_model_training_curves(
+        cfgs, 'compare_models_celegans',
+        model_list=model_list, 
+        mode_list=['neurons', '100pc', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
+    )
+
+def virtual_stimulation_analysis():
+    cfgs = experiments.compare_models_stim()
+    from analysis.stim import virtual_stimulation
+    for seed in range(2):
+        for i, cfg in enumerate(cfgs[seed]):
+            if cfg.brain_regions == 'average':
+                virtual_stimulation(cfg)
+
 def compare_models_sim_analysis():
     cfgs = experiments.compare_models_sim()
     model_list = experiments.model_list
@@ -463,7 +497,7 @@ def compare_models_single_neuron_analysis():
     compare_model_training_curves(
         cfgs, 'compare_models_single_neuron', 
         model_list=model_list, 
-        mode_list=['spontaneous', ],
+        mode_list=['spontaneous', 'stim_control', ],
         plot_model_lists=plot_lists,
         plot_train_test_curve=False
     )
@@ -703,6 +737,35 @@ def compare_num_animals_analysis():
         mode='errorshade',
     )
 
+def compare_cohorts_analysis():
+    configs = experiments.multi_cohorts_pc()
+    data = analyze_performance.analyze_predictivity_all(configs)
+
+    for phase in ['train', 'val', 'test']:
+        curves = []
+        model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
+
+        for i, model in enumerate(model_list):
+            curve = []
+            for j in range(4):
+                performance = data[i * 4 + j][phase]['animal_mse']
+                print(performance.shape)
+                curve.append(np.mean(performance[: 5], axis=0))
+
+            curves.append(curve)
+        
+        plots.error_plot(
+            range(1, 5), curves,
+            x_label='Number of Cohorts for Training',
+            y_label='Mean Validation MSE (Control Cohort)',
+            xticks=range(1, 5),
+            label_list=model_list,
+            save_dir='compare_cohorts',
+            fig_name=f'cohorts_vs_mse_{phase}',
+            mode='errorshade',
+            figsize=(3.5, 3),
+        )
+            
 def compare_train_length_analysis():
     cfgs = experiments.compare_train_length_pc()
     for key in ['val_mse', 'val_mae']:

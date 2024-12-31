@@ -1,3 +1,5 @@
+# Deprecated
+
 import torch
 import torch.nn as nn
 import os
@@ -5,7 +7,7 @@ import tensorly as tl
 import matplotlib.pyplot as plt
 
 from configs.configs import NeuralPredictionConfig
-from datasets.zebrafish import Zebrafish
+from datasets.datasets import Zebrafish
 from configs.config_global import DEVICE
 from models import SimpleRNN
 from tensorly.decomposition import parafac

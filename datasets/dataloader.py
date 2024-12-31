@@ -70,6 +70,14 @@ def init_single_dataset(dataset_name: str, phase: str, config: SupervisedLearnin
         data_set = datasets.VisualZebrafish(config, phase=phase)
         collate_f = data_set.collate_fn
         datum_size = data_set.datum_size
+    elif dataset_name == 'zebrafish_stim':
+        data_set = datasets.StimZebrafish(config, phase=phase)
+        collate_f = data_set.collate_fn
+        datum_size = data_set.datum_size
+    elif dataset_name == 'celegans':
+        data_set = datasets.Celegans(config, phase=phase)
+        collate_f = data_set.collate_fn
+        datum_size = data_set.datum_size
     else:
         raise NotImplementedError('Dataset not implemented')
 

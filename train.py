@@ -10,7 +10,7 @@ import torch.optim.lr_scheduler as lrs
 
 from configs.config_global import LOG_LEVEL, NP_SEED, TCH_SEED, USE_CUDA, DATA_DIR
 from configs.configs import BaseConfig, SupervisedLearningBaseConfig
-from datasets.data_sets import DatasetIters
+from datasets.dataloader import DatasetIters
 from tasks.taskfunctions import TaskFunction
 from models.model_utils import model_init
 from utils.config_utils import load_config
