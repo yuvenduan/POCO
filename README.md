@@ -12,7 +12,7 @@ python run_preprocess.py
 ```
 to normalize calcium traces and do PCA. The processed data will be saved in <code>data/processed</code>. You can also edit <code>run_preprocess.py</code> to generate simulated data.
 
-Alternatively, you can put your own data in <code>data/...</code> and implement your own data processing pipeline like those in <code>datasets/zebrafish.py</code>. In particular, you can inherit from <code>NeuralDataset</code> class and implement <code>load_all_activities</code>, then define how to initialize the dataset in <code>datasets/data_sets.py</code> and add configs for the dataset in <code>configs/experiments.py/configure_dataset</code>.
+Alternatively, you can put your own data in <code>data/...</code> and implement your own data processing pipeline like those in <code>datasets/datasets.py</code>. In particular, you can inherit from <code>NeuralDataset</code> class and implement <code>load_all_activities</code>, then define how to initialize the dataset in <code>datasets/data_sets.py</code> and add configs for the dataset in <code>configs/experiments.py/configure_dataset</code>.
 
 ### Usage
 
@@ -42,7 +42,7 @@ python main.py -a test
 * <code>model/model_utils.py</code> defines the model types and rnn types used in the experiments. 
 * <code>model/model.py</code> implements several model types including autoregressive models and latent dynamics models (PLRNN), POYO.
 * <code>tasks/taskfunction.py</code> implements the neural prediction task
-* <code>datasets/zebrafish.py</code> implements the dataset for neural prediction, including how data is normalized, chunked, and partitioned into training and test sets.
+* <code>datasets/datasets.py</code> implements the dataset for neural prediction, including how data is normalized, chunked, and partitioned into training and test sets.
 * <code>main.py</code> save config for each run in a experiment (and submit the jobs to cluster if with -c)
 * <code>train.py</code> implements the training loop
 

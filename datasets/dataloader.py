@@ -78,9 +78,13 @@ def init_single_dataset(dataset_name: str, phase: str, config: SupervisedLearnin
         data_set = datasets.Celegans(config, phase=phase)
         collate_f = data_set.collate_fn
         datum_size = data_set.datum_size
+    elif dataset_name == 'mice':
+        data_set = datasets.Mice(config, phase=phase)
+        collate_f = data_set.collate_fn
+        datum_size = data_set.datum_size
     else:
         raise NotImplementedError('Dataset not implemented')
 
     data_loader = DataLoader(data_set, batch_size=config.batch_size, shuffle=train_flag,
-                             num_workers=config.num_workers, drop_last=train_flag, collate_fn=collate_f)
+                             num_workers=config.num_workers, collate_fn=collate_f) # drop last is False, not sure if this causes problems
     return data_loader, datum_size

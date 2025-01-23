@@ -2,7 +2,7 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'Simulation', 'VisualZebrafish', 'StimZebrafish', 'Celegans', 'get_baseline_performance']
+__all__ = ['Zebrafish', 'Simulation', 'VisualZebrafish', 'StimZebrafish', 'Celegans', 'Mice', 'get_baseline_performance']
 
 import torch
 import torch.utils.data as tud
@@ -15,8 +15,8 @@ import time
 
 from tqdm import tqdm
 from configs.configs import NeuralPredictionConfig
-from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR
-from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names
+from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, MICE_PROCESSED_DIR
+from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
 
@@ -55,6 +55,8 @@ class NeuralDataset(tud.Dataset):
         self.sampling_freq = config.sampling_freq
         self.sampling_mode = config.sampling_mode
         all_activities = self.load_all_activities(config)
+
+        logging.info(f"Raw Activity Shape: {[activity.shape for activity in all_activities]}")
 
         for all_activity in all_activities:
                     
@@ -421,8 +423,28 @@ class Celegans(NeuralDataset):
             if config.animal_ids != 'all' and idx not in config.animal_ids:
                 continue
             filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{idx}.npz')
-            all_activity.append(self.get_activity(filename, config))
+            activity = self.get_activity(filename, config)
+            activity = self.downsample(activity)
+            all_activity.append(activity)
         return all_activity
+    
+class Mice(Celegans):
+
+    def load_all_activities(self, config: NeuralPredictionConfig):
+        all_activities = []
+        all_sessions = get_mice_sessions()
+
+        for idx, (mouse, sessions) in enumerate(all_sessions.items()):
+            if config.animal_ids != 'all' and idx not in config.animal_ids:
+                continue
+
+            for session in sessions:
+                filename = os.path.join(MICE_PROCESSED_DIR, f'{mouse}_{session}.npz')
+                activity = self.get_activity(filename, config)
+                activity = self.downsample(activity)
+                all_activities.append(activity)
+
+        return all_activities
 
 class Simulation(NeuralDataset):
 
@@ -529,6 +551,8 @@ def get_baseline_performance(config, phase='train'):
         dataset = VisualZebrafish(config, phase=phase)
     elif config.dataset == 'zebrafish_stim':
         dataset = StimZebrafish(config, phase=phase)
+    elif config.dataset == 'celegans':
+        dataset = Celegans(config, phase=phase)
     else:
         raise NotImplementedError(config.dataset)
 

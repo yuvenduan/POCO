@@ -59,6 +59,12 @@ def configure_dataset(configs: dict, large=False):
             elif label == 'celegans':
                 config.dataset = 'celegans'
                 config.pc_dim = None
+            elif label == 'mice_pc':
+                config.dataset = 'mice'
+                config.pc_dim = 512
+            elif label == 'mice':
+                config.dataset = 'mice'
+                config.pc_dim = None
             elif label[:6] == 'sim_pc':
                 config.dataset = 'simulation'
                 config.pc_dim = 512

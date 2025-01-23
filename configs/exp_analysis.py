@@ -461,7 +461,7 @@ def compare_models_celegans_analysis():
     cfgs = experiments.compare_models_celegans()
     model_list = experiments.selected_model_list
     plot_lists = {}
-    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
+    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'POYO']
     compare_model_training_curves(
         cfgs, 'compare_models_celegans',
         model_list=model_list, 
@@ -737,6 +737,35 @@ def compare_num_animals_analysis():
         mode='errorshade',
     )
 
+def compare_num_animals_single_neuron_analysis():
+    multi_animal_cfgs = experiments.multi_animal_single_neuron()
+    model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
+    colors = plots.get_model_colors(model_list)
+    split5_performance = get_weighted_performance(
+        multi_animal_cfgs, len(model_list), 8, range(5))
+    split2_performance = get_weighted_performance(
+        multi_animal_cfgs, len(model_list), 8, range(5, 7))
+    all_performance = get_weighted_performance(
+        multi_animal_cfgs, len(model_list), 8, range(7, 8))
+    
+    curves = []
+    for i, model in enumerate(model_list):
+        curves.append([split5_performance[i], split2_performance[i], all_performance[i]])
+    
+    plots.error_plot(
+        range(3), curves,
+        x_label='Number of Splits',
+        y_label='Mean Validation MSE',
+        xticks=range(3),
+        xticks_labels=['5', '2', '1'],
+        label_list=model_list,
+        save_dir='compare_num_animals',
+        fig_name='celgans_num_animals_vs_mse',
+        colors=colors,
+        figsize=(3.5, 3),
+        mode='errorshade',
+    )
+
 def compare_cohorts_analysis():
     configs = experiments.multi_cohorts_pc()
     data = analyze_performance.analyze_predictivity_all(configs)
@@ -777,6 +806,21 @@ def compare_train_length_analysis():
             save_dir='train_length',
             key=key,
             mode_list=['spontaneous', ],
+            plot_model_list=['POYO', 'Linear', ],
+            logarithm=True,
+            key_name='Test MSE' if key == 'val_mse' else 'Test MAE'
+        )
+
+    cfgs = experiments.compare_train_length_single_neuron()
+    for key in ['val_mse', 'val_mae']:
+        compare_param_analysis(
+            cfgs, 
+            np.log2([128, 256, 512, 1024, 2048, 3000, ]),
+            experiments.selected_model_list,
+            param_name='log2(recording length)',
+            save_dir='train_length',
+            key=key,
+            mode_list=['ceelgans', ],
             plot_model_list=['POYO', 'Linear', ],
             logarithm=True,
             key_name='Test MSE' if key == 'val_mse' else 'Test MAE'
