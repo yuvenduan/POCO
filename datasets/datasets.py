@@ -2,28 +2,25 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'Simulation', 'VisualZebrafish', 'StimZebrafish', 'Celegans', 'Mice', 'get_baseline_performance']
+__all__ = ['Zebrafish', 'Simulation', 'StimZebrafish', 'Celegans', 'Mice', 'get_baseline_performance']
 
 import torch
 import torch.utils.data as tud
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import logging
 import os
-import time
 
 from tqdm import tqdm
-from configs.configs import NeuralPredictionConfig
+from configs.configs import DatasetConfig
 from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, MICE_PROCESSED_DIR
 from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
 
-    def load_all_activities(self, config: NeuralPredictionConfig):
+    def load_all_activities(self, config: DatasetConfig):
         """
         Return:
-            a list containing neural activity for each animal, each element is a N * T matrix
+            a list containing neural activity for each session, each element is a N * T matrix
         Should be implemented in the subclass
         """
         raise NotImplementedError
@@ -42,18 +39,19 @@ class NeuralDataset(tud.Dataset):
         else:
             raise NotImplementedError(self.sampling_mode)
 
-    def __init__(self, config: NeuralPredictionConfig, phase='train'):
+    def __init__(self, config: DatasetConfig, phase='train'):
 
         self.neural_data = []
-        self.animal_id = []
-        self.datum_size = []
+        self.session_id = []
+        self.input_size = []
         self.pred_length = config.pred_length
-        self.stimuli_dim = config.stimuli_dim
         self.normalize_coef = []
 
-        animal_idx = 0
+        session_idx = 0
         self.sampling_freq = config.sampling_freq
         self.sampling_mode = config.sampling_mode
+        if isinstance(config.session_ids, int):
+            config.session_ids = [config.session_ids]
         all_activities = self.load_all_activities(config)
 
         logging.info(f"Raw Activity Shape: {[activity.shape for activity in all_activities]}")
@@ -67,7 +65,7 @@ class NeuralDataset(tud.Dataset):
                 length = min(length, config.train_data_length)
             patch_length = config.patch_length
             segments = max(1, length // patch_length)
-            self.datum_size.append(all_activity.shape[0] - self.stimuli_dim)
+            self.input_size.append(all_activity.shape[0])
 
             # different normalization methods
             if config.normalize_mode == 'minmax':
@@ -106,20 +104,18 @@ class NeuralDataset(tud.Dataset):
                 else:
                     raise NotImplementedError(phase)
                 
-                self.animal_id.append(animal_idx)
+                self.session_id.append(session_idx)
                 self.neural_data.append(activity)
 
-            animal_idx += 1
+            session_idx += 1
         
         self.window_stride = config.test_set_window_stride if phase != 'train' else 1
         self.seq_length = config.seq_length
         self.data_length = [max(0, (data.shape[1] - self.seq_length - 1) // self.window_stride + 1) for data in self.neural_data]
-        self.num_animals = animal_idx
-        self.target_mode = config.target_mode
+        self.num_sessions = session_idx
 
-
-        logging.info(f"---- {phase} dataset info ----")
-        if phase != 'train' and config.show_chance:
+        logging.info(f"---- {config.dataset} {phase} dataset info ----")
+        if phase != 'train':
             self.baseline = self.get_detailed_chance_performance()
             logging.info(f"""
     copy mse/mae: {self.baseline['avg_copy_mse']:.6f} {self.baseline['avg_copy_mae']:.6f}
@@ -127,9 +123,9 @@ class NeuralDataset(tud.Dataset):
             """)
         
         logging.info(f"""
-    num_animals: {self.num_animals}, total patch: {len(self.neural_data)}, total_length: {len(self)}
-    input_size: {self.datum_size}
-    data_length: {self.data_length}
+    num_sessions: {self.num_sessions}, total patch: {len(self.neural_data)}, total_length: {len(self)}
+    input_size: {self.input_size}
+    total data_length: {sum(self.data_length)}
 ------------------------------
         """)
         
@@ -139,8 +135,6 @@ class NeuralDataset(tud.Dataset):
         """
         See get_baseline_performance for explanation of the return value
         """
-        assert self.stimuli_dim == 0
-        assert self.target_mode == 'raw'
 
         pred_num = []
         sum_copy_mse = []
@@ -149,7 +143,7 @@ class NeuralDataset(tud.Dataset):
         sum_chance_mae = []
         act_list = []
 
-        for size in self.datum_size:
+        for size in self.input_size:
             pred_num.append(np.zeros(size))
             if self.pred_length > 0:
                 sum_copy_mse.append(np.zeros((self.pred_length, size)))
@@ -167,45 +161,45 @@ class NeuralDataset(tud.Dataset):
             data, info = self[idx]
 
             data: np.ndarray = data
-            animal_idx = info['animal_idx']
+            session_idx = info['session_idx']
 
             if self.pred_length > 0:
                 # for predicition, calculate the performance when copying the last frame
                 error = data[-self.pred_length: ] - data[-self.pred_length - 1, :] # L * D
-                act_list[animal_idx] += data[-self.pred_length: ].mean(axis=0)
+                act_list[session_idx] += data[-self.pred_length: ].mean(axis=0)
             else:
                 # for reconstruction, calculate the performance when copying the mean
                 error = data - data.mean(axis=0)
-                act_list[animal_idx] += data.mean(axis=0)
+                act_list[session_idx] += data.mean(axis=0)
             
-            pred_num[animal_idx] += 1
-            sum_copy_mse[animal_idx] += np.square(error)
-            sum_copy_mae[animal_idx] += np.abs(error)
+            pred_num[session_idx] += 1
+            sum_copy_mse[session_idx] += np.square(error)
+            sum_copy_mae[session_idx] += np.abs(error)
 
         # get the mean activation for each channel
-        for idx in range(self.num_animals):
+        for idx in range(self.num_sessions):
             act_list[idx] = act_list[idx] / pred_num[idx]
 
         for idx in tqdm(range(len(self))):
             data, info = self[idx]
             data: np.ndarray = data
-            animal_idx = info['animal_idx']
+            session_idx = info['session_idx']
             if self.pred_length > 0:
-                error = data[-self.pred_length: ] - act_list[animal_idx] # L * D
+                error = data[-self.pred_length: ] - act_list[session_idx] # L * D
             else:
-                error = data - act_list[animal_idx]
-            sum_chance_mse[animal_idx] += np.square(error).mean(axis=0) # D
-            sum_chance_mae[animal_idx] += np.abs(error).mean(axis=0) # D
+                error = data - act_list[session_idx]
+            sum_chance_mse[session_idx] += np.square(error).mean(axis=0) # D
+            sum_chance_mae[session_idx] += np.abs(error).mean(axis=0) # D
 
         copy_mse = []
         copy_mae = []
         chance_mse = []
         chance_mae = []
 
-        animal_chance_mse = []
-        animal_chance_mae = []
-        animal_copy_mse = []
-        animal_copy_mae = []
+        session_chance_mse = []
+        session_chance_mae = []
+        session_copy_mse = []
+        session_copy_mae = []
 
         all_pred_num = 0
         all_copy_mse = 0
@@ -213,22 +207,22 @@ class NeuralDataset(tud.Dataset):
         all_chance_mse = 0
         all_chance_mae = 0
 
-        for animal_idx in range(self.num_animals):
-            copy_mse.append(sum_copy_mse[animal_idx].mean(axis=0) / pred_num[animal_idx])
-            copy_mae.append(sum_copy_mae[animal_idx].mean(axis=0) / pred_num[animal_idx])
-            chance_mse.append(sum_chance_mse[animal_idx] / pred_num[animal_idx])
-            chance_mae.append(sum_chance_mae[animal_idx] / pred_num[animal_idx])
+        for session_idx in range(self.num_sessions):
+            copy_mse.append(sum_copy_mse[session_idx].mean(axis=0) / pred_num[session_idx])
+            copy_mae.append(sum_copy_mae[session_idx].mean(axis=0) / pred_num[session_idx])
+            chance_mse.append(sum_chance_mse[session_idx] / pred_num[session_idx])
+            chance_mae.append(sum_chance_mae[session_idx] / pred_num[session_idx])
 
-            animal_copy_mse.append(copy_mse[-1].mean())
-            animal_copy_mae.append(copy_mae[-1].mean())
-            animal_chance_mse.append(chance_mse[-1].mean())
-            animal_chance_mae.append(chance_mae[-1].mean())
+            session_copy_mse.append(copy_mse[-1].mean())
+            session_copy_mae.append(copy_mae[-1].mean())
+            session_chance_mse.append(chance_mse[-1].mean())
+            session_chance_mae.append(chance_mae[-1].mean())
 
-            all_pred_num += pred_num[animal_idx].sum()
-            all_copy_mse += sum_copy_mse[animal_idx].mean(axis=0).sum()
-            all_copy_mae += sum_copy_mae[animal_idx].mean(axis=0).sum()
-            all_chance_mse += sum_chance_mse[animal_idx].sum()
-            all_chance_mae += sum_chance_mae[animal_idx].sum()
+            all_pred_num += pred_num[session_idx].sum()
+            all_copy_mse += sum_copy_mse[session_idx].mean(axis=0).sum()
+            all_copy_mae += sum_copy_mae[session_idx].mean(axis=0).sum()
+            all_chance_mse += sum_chance_mse[session_idx].sum()
+            all_chance_mae += sum_chance_mae[session_idx].sum()
 
         return_dict = {
             'pred_num': pred_num,
@@ -236,10 +230,10 @@ class NeuralDataset(tud.Dataset):
             'copy_mae': copy_mae,
             'chance_mse': chance_mse,
             'chance_mae': chance_mae,
-            'animal_chance_mse': animal_chance_mse,
-            'animal_chance_mae': animal_chance_mae,
-            'animal_copy_mse': animal_copy_mse,
-            'animal_copy_mae': animal_copy_mae,
+            'session_chance_mse': session_chance_mse,
+            'session_chance_mae': session_chance_mae,
+            'session_copy_mse': session_copy_mse,
+            'session_copy_mae': session_copy_mae,
             'avg_copy_mse': all_copy_mse / all_pred_num,
             'avg_copy_mae': all_copy_mae / all_pred_num,
             'avg_chance_mse': all_chance_mse / all_pred_num,
@@ -247,14 +241,14 @@ class NeuralDataset(tud.Dataset):
         }
 
         # calculate the mean prediction performance for different PCs by doing weighted averaging
-        if np.all(np.array(self.datum_size) == self.datum_size[0]):
-            sum_pred_num = np.zeros(self.datum_size[0])
-            sum_copy_mse = np.zeros(self.datum_size[0])
-            sum_copy_mae = np.zeros(self.datum_size[0])
-            sum_chance_mse = np.zeros(self.datum_size[0])
-            sum_chance_mae = np.zeros(self.datum_size[0])
+        if np.all(np.array(self.input_size) == self.input_size[0]):
+            sum_pred_num = np.zeros(self.input_size[0])
+            sum_copy_mse = np.zeros(self.input_size[0])
+            sum_copy_mae = np.zeros(self.input_size[0])
+            sum_chance_mse = np.zeros(self.input_size[0])
+            sum_chance_mae = np.zeros(self.input_size[0])
 
-            for idx in range(len(self.datum_size)):
+            for idx in range(len(self.input_size)):
                 sum_pred_num += pred_num[idx]
                 sum_copy_mse += copy_mse[idx] * pred_num[idx]
                 sum_copy_mae += copy_mae[idx] * pred_num[idx]
@@ -277,44 +271,38 @@ class NeuralDataset(tud.Dataset):
             idx -= self.data_length[patch_idx]
             patch_idx += 1
 
-        animal_idx = self.animal_id[patch_idx]
+        session_idx = self.session_id[patch_idx]
         pos = idx * self.window_stride
         data = self.neural_data[patch_idx][:, pos: pos + self.seq_length].transpose()
-        info = {'animal_idx': animal_idx, 'time_idx': idx, }
+        info = {'session_idx': session_idx, 'time_idx': idx, }
 
         return data, info
     
     def collate_fn(self, batch):
-        # group the data by fish
-        animal_indices = [[] for _ in range(self.num_animals)]
+        # group the data by session
+        session_indices = [[] for _ in range(self.num_sessions)]
         for idx, (data, info) in enumerate(batch):
-            animal_indices[info['animal_idx']].append(idx)
+            session_indices[info['session_idx']].append(idx)
 
         input_list = []
         target_list = []
         info_list = []
-        for animal_idx, indices in enumerate(animal_indices):
+        for session_idx, indices in enumerate(session_indices):
             if len(indices) == 0:
-                input_list.append(torch.zeros(self.seq_length - self.pred_length, 0, self.datum_size[animal_idx] + self.stimuli_dim))
-                target_list.append(torch.zeros(self.seq_length - 1, 0, self.datum_size[animal_idx]))
-                info_list.append({'animal_idx': animal_idx, 'time_idx': [], 'normalize_coef': self.normalize_coef[animal_idx]})
+                input_list.append(torch.zeros(self.seq_length - self.pred_length, 0, self.input_size[session_idx]))
+                target_list.append(torch.zeros(self.seq_length - 1, 0, self.input_size[session_idx]))
+                info_list.append({'session_idx': session_idx, 'time_idx': [], 'normalize_coef': self.normalize_coef[session_idx]})
                 continue
 
             data = torch.stack([torch.from_numpy(batch[idx][0]).float() for idx in indices], dim=1) # L * B * D
             input_list.append(data[: -self.pred_length] if self.pred_length > 0 else data)
-            target_dim = data.shape[2] - self.stimuli_dim
-
-            if self.target_mode == 'raw':
-                target_list.append(data[1:, :, : target_dim])
-            elif self.target_mode == 'derivative':
-                target_list.append(data[1:, :, : target_dim] - data[: -1, :, : target_dim])
-            else:
-                raise NotImplementedError
+            target_dim = data.shape[2]
+            target_list.append(data[1:, :, : target_dim])
 
             info_list.append({
-                'animal_idx': animal_idx, 
+                'session_idx': session_idx, 
                 'time_idx': [batch[idx][1]['time_idx'] for idx in indices],
-                'normalize_coef': self.normalize_coef[animal_idx]
+                'normalize_coef': self.normalize_coef[session_idx]
             })
 
         return input_list, target_list, info_list
@@ -326,7 +314,7 @@ class Zebrafish(NeuralDataset):
         'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
     ]
 
-    def get_activity(self, filename, config: NeuralPredictionConfig):
+    def get_activity(self, filename, config: DatasetConfig):
         """
         Load the neural activity from the file
         Based on the config, return the activity of specific brain regions, the average activity of all brain regions, or principal components of whole-brain activity
@@ -366,18 +354,23 @@ class Zebrafish(NeuralDataset):
         
         return all_activity
 
-    def load_all_activities(self, config: NeuralPredictionConfig):
+    def load_all_activities(self, config: DatasetConfig):
         exp_names = get_exp_names()
         all_activities = []
+        n_sessions = 0
+
         for exp_type in config.exp_types:
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
-                if config.animal_ids != 'all' and i_exp not in config.animal_ids:
+                if config.session_ids != None and n_sessions not in config.session_ids:
                     continue
+                if config.animal_ids != None and i_exp not in config.animal_ids:
+                    continue
+
                 filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
                 all_activity = self.get_activity(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
-        
+                n_sessions += 1
         return all_activities
     
 class StimZebrafish(Zebrafish):
@@ -387,24 +380,27 @@ class StimZebrafish(Zebrafish):
         'in_r_LHb', 'in_r_MHb', 'in_r_cerebellum', 'in_r_di', 'in_r_dthal', 'in_r_hind', 'in_r_meso', 'in_r_preoptic', 'in_r_raphe', 'in_r_tectum', 'in_r_tel', 'in_r_vthal'
     ]
 
-    def load_all_activities(self, config: NeuralPredictionConfig):
+    def load_all_activities(self, config: DatasetConfig):
         exp_names = get_stim_exp_names()
         all_activities = []
+        n_sessions = 0
+
         for exp_type in config.exp_types:
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
-                if config.animal_ids != 'all' and i_exp not in config.animal_ids:
+                if config.session_ids != None and n_sessions not in config.session_ids:
+                    continue
+                if config.animal_ids != None and i_exp not in config.animal_ids:
                     continue
 
                 filename = os.path.join(STIM_PROCESSED_DIR, exp_name + '.npz')
                 all_activity = self.get_activity(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
-        
         return all_activities
     
 class Celegans(NeuralDataset):
 
-    def get_activity(self, filename, config: NeuralPredictionConfig):
+    def get_activity(self, filename, config: DatasetConfig):
         """
         Load the neural activity from the file
         """
@@ -417,11 +413,13 @@ class Celegans(NeuralDataset):
                 all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
         return all_activity
 
-    def load_all_activities(self, config: NeuralPredictionConfig):
+    def load_all_activities(self, config: DatasetConfig):
         all_activity = []
         for idx in range(5):
-            if config.animal_ids != 'all' and idx not in config.animal_ids:
+            if config.session_ids != None and idx not in config.session_ids:
                 continue
+            if config.animal_ids != None and idx not in config.animal_ids:
+                    continue
             filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{idx}.npz')
             activity = self.get_activity(filename, config)
             activity = self.downsample(activity)
@@ -430,26 +428,28 @@ class Celegans(NeuralDataset):
     
 class Mice(Celegans):
 
-    def load_all_activities(self, config: NeuralPredictionConfig):
+    def load_all_activities(self, config: DatasetConfig):
         all_activities = []
         all_sessions = get_mice_sessions()
+        n_sessions = 0
 
         for idx, (mouse, sessions) in enumerate(all_sessions.items()):
-            if config.animal_ids != 'all' and idx not in config.animal_ids:
+            if config.session_ids != None and n_sessions not in config.session_ids:
                 continue
+            if config.animal_ids != None and idx not in config.animal_ids:
+                    continue
 
             for session in sessions:
                 filename = os.path.join(MICE_PROCESSED_DIR, f'{mouse}_{session}.npz')
                 activity = self.get_activity(filename, config)
                 activity = self.downsample(activity)
                 all_activities.append(activity)
-
+                n_sessions += 1
         return all_activities
 
 class Simulation(NeuralDataset):
 
-    def load_all_activities(self, config: NeuralPredictionConfig):
-        
+    def load_all_activities(self, config: DatasetConfig):
         name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{config.sim_seed}'
         if config.sparsity != 1:
             name += f'_sparsity_{config.sparsity}'
@@ -468,50 +468,7 @@ class Simulation(NeuralDataset):
         all_activity = self.downsample(all_activity)
         return [all_activity]
 
-class VisualZebrafish(NeuralDataset):
-
-    def load_all_activities(self, config: NeuralPredictionConfig):
-        subject_ids = get_subject_ids()
-        all_activities = []
-        for id in subject_ids:
-            if config.animal_ids != 'all' and id not in config.animal_ids:
-                continue
-            filename = os.path.join(VISUAL_PROCESSED_DIR, f'subject_{id}.npz')
-
-            with np.load(filename) as fishdata:
-                if config.pc_dim is None:
-                    all_activity: np.ndarray = fishdata['M']
-                else:
-                    all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
-
-                if config.use_eye_movements:
-                    if 'eye' not in fishdata:
-                        print("Subject {} does not have eye movements".format(id))
-                        continue
-                    eye = fishdata['eye_motorseed']
-                    assert np.all(eye != np.nan)
-                    all_activity = np.concatenate([all_activity, eye], axis=0)
-
-                if config.use_motor:
-                    if 'behavior' not in fishdata:
-                        print("Subject {} does not have motor data".format(id))
-                        continue
-                    motor = fishdata['behavior_motorseed']
-                    assert np.all(motor != np.nan)
-                    all_activity = np.concatenate([all_activity, motor], axis=0)
-
-                if config.use_stimuli:
-                    s = fishdata['stim']
-                    # change to one-hot
-                    s = np.eye(config.stimuli_dim)[s].T
-                    all_activity = np.concatenate([all_activity, s], axis=0)
-                    assert config.stimuli_dim == 24
-
-                all_activity = self.downsample(all_activity)
-                all_activities.append(all_activity)
-        return all_activities
-    
-def get_baseline_performance(config, phase='train'):
+def get_baseline_performance(config: DatasetConfig, phase='train'):
     """
     Get the baseline performance for the dataset
 
@@ -519,19 +476,19 @@ def get_baseline_performance(config, phase='train'):
     :param phase: 'train', 'val' or 'test'
     :return: a dict containing the baseline performance, contains the following keys:
     'pred_num': 
-        list of arrays, each has shape [d], number of trials for each channel of each animal
+        list of arrays, each has shape [d], number of trials for each channel of each session
     'copy_mse', 'copy_mae': 
         list of arrays, each has shape [d], sum of mse/mae of the copy baseline
     'chance_mse', 'chance_mae': 
         list of arrays, each has shape [d], sum of mse/mae of the chance baseline
-    'animal_chance_mse', 'animal_chance_mae': 
-        list of floats, mse/mae for each animal
-    'animal_copy_mse', 'animal_copy_mae': 
-        list of floats, mse/mae for each animal
+    'session_chance_mse', 'session_chance_mae': 
+        list of floats, mse/mae for each session
+    'session_copy_mse', 'session_copy_mae': 
+        list of floats, mse/mae for each session
     'avg_copy_mse', 'avg_copy_mae': 
-        float, average mse/mae across all animals
+        float, average mse/mae across all sessions
     'avg_chance_mse', 'avg_chance_mae': 
-        float, average mse/mae across all animals
+        float, average mse/mae across all sessions
     'mean_copy_mse', 'mean_copy_mae': 
         array of shape [d], mean mse/mae for each PC
     'mean_chance_mse', 'mean_chance_mae': 
@@ -547,12 +504,12 @@ def get_baseline_performance(config, phase='train'):
         dataset = Zebrafish(config, phase=phase)
     elif config.dataset == 'simulation':
         dataset = Simulation(config, phase=phase)
-    elif config.dataset == 'zebrafish_visual':
-        dataset = VisualZebrafish(config, phase=phase)
     elif config.dataset == 'zebrafish_stim':
         dataset = StimZebrafish(config, phase=phase)
     elif config.dataset == 'celegans':
         dataset = Celegans(config, phase=phase)
+    elif config.dataset == 'mice':
+        dataset = Mice(config, phase=phase)
     else:
         raise NotImplementedError(config.dataset)
 

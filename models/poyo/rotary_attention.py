@@ -11,7 +11,7 @@ try:
 except ImportError:
     xops = None
 
-from models.poyo_nn.rotary_embedding import apply_rotary_pos_emb
+from models.poyo.rotary_embedding import apply_rotary_pos_emb
 
 class RotaryCrossAttention(nn.Module):
     def __init__(

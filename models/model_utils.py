@@ -4,12 +4,14 @@ import models
 import numpy as np
 import torch
 import math
+import models.multi_session_models as multi_session_models
 
 from configs.config_global import ROOT_DIR, DEVICE
 from configs.configs import SupervisedLearningBaseConfig
 from utils.config_utils import load_config
 from configs.configs import BaseConfig
-from models.rnns import PLRNN_Step, CTRNNCell, CTRNN
+from models.layers.rnns import PLRNN_Step, CTRNNCell, CTRNN
+from models.layers.transformer import CausalTransformerEncoder, CausalTransformerEncoderLayer
 
 def get_rnn_from_config(config: SupervisedLearningBaseConfig, **kwargs):
     rnn = get_rnn(
@@ -49,10 +51,10 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
         rnn = nn.GRU(rnn_in_size, hidden_size, bidirectional=True, num_layers=num_layers, **kwargs)
     elif rnn_type == 'Transformer':
         assert rnn_in_size == hidden_size, 'Input size must be equal to hidden size for transformer'
-        kwargs['num_layers'] = kwargs.get('num_layers', 3)
-        rnn = models.transformer.CausalTransformerEncoder(
+        kwargs['num_layers'] = kwargs.get('num_layers', 4)
+        rnn = CausalTransformerEncoder(
             hidden_size,
-            models.transformer.CausalTransformerEncoderLayer(
+            CausalTransformerEncoderLayer(
                 hidden_size, 
                 nhead=8, 
                 dim_feedforward=hidden_size * 2,
@@ -81,28 +83,10 @@ def get_pretrained_model(model_path, config_path, datum_size=None, eval_mode=Tru
         model.requires_grad_(False)
     return model
 
-def model_init(config_: BaseConfig, datum_size):
-    if config_.model_type == 'Autoregressive':
-        model = models.AutoregressiveModel(config_, datum_size=datum_size)
-    elif config_.model_type == 'SeqVAE':
-        model = models.MultiFishSeqVAE(config_, datum_size=datum_size)
-    elif config_.model_type == 'Linear':
-        model = models.Linear(config_, datum_size=datum_size)
-    elif config_.model_type == 'LatentModel':
-        model = models.LatentModel(config_, datum_size=datum_size)
-    elif config_.model_type == 'TCN':
-        model = models.MultiTCN(config_, datum_size=datum_size)
-    elif config_.model_type == 'VQVAE':
-        model = models.vqvae(config_, datum_size=datum_size)
-    elif config_.model_type == 'Decoder':
-        model = models.Decoder(config_, datum_size=datum_size)
-    elif config_.model_type == 'Mixed':
-        model = models.MixedModel(config_, datum_size=datum_size)
-    else:
-        raise NotImplementedError("Model not Implemented")
-
-    if config_.load_path is not None:
-        model.load_state_dict(torch.load(config_.load_path))
+def model_init(config: BaseConfig, datum_size):
+    model = eval("multi_session_models." + config.model_type)(config, datum_size)
+    if config.load_path is not None:
+        model.load_state_dict(torch.load(config.load_path))
         
     model.to(DEVICE)
     return model

@@ -3,7 +3,7 @@ Adapted from https://github.com/luodhhh/ModernTCN/tree/main
 ModernTCN: A Modern Pure Convolution Structure for General Time Series Analysis
 """
 
-__all__ = ['MultiTCN']
+__all__ = ['TCN', ]
 
 import torch
 from torch import nn
@@ -27,7 +27,7 @@ class RevIN(nn.Module):
         if self.affine:
             self._init_params()
 
-    def forward(self, x, mode:str):
+    def forward(self, x, mode: str):
         if mode == 'norm':
             self._get_statistics(x)
             x = self._normalize(x)
@@ -481,40 +481,6 @@ class TCN(nn.Module):
             x = self.model(x, te)
             x = x.permute(0, 2, 1)
         return x
-    
-class MultiTCN(nn.Module):
-
-    def __init__(self, configs, datum_size):
-        super().__init__()
-        if configs.shared_backbone:
-            for size in datum_size:
-                assert size == datum_size[0], 'shared_backbone should have the same datum size'
-            self.models = TCN(configs, datum_size[0])
-        else:
-            self.models = nn.ModuleList([TCN(configs, size) for size in datum_size])
-        self.shared_backbone = configs.shared_backbone
-
-    def forward(self, x, pred_step=1):
-        # x: L, B, D
-        if self.shared_backbone:
-            bsz = [xx.size(1) for xx in x]
-            x = torch.cat(x, dim=1)
-            x = x.permute(1, 0, 2)
-            x = self.models(x)
-            x = x.permute(1, 0, 2)
-            x = torch.split(x, bsz, dim=1)
-            return x
-        else:
-            ret = []
-            for i, xx in enumerate(x):
-                xx = xx.permute(1, 0, 2) # to B, L, D
-                xx = self.models[i](xx)
-                xx = xx.permute(1, 0, 2) # to L, B, D
-                ret.append(xx)
-        return ret
-    
-    def set_mode(self, mode):
-        pass
 
 class moving_avg(nn.Module):
     """

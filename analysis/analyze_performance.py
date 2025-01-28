@@ -22,7 +22,7 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             print(f'No {phase} info file found at {config.save_path}')
             continue        
 
-        mse = info_dict['mse'] # list of arrays, each for one animal, each array has shape [pred_step, d], sum of mse for all trials
+        mse = info_dict['mse'] # list of arrays, each for one session, each array has shape [pred_step, d], sum of mse for all trials
         mae = info_dict['mae'] # similar to mse
         pred_num = info_dict['pred_num'] # list of arrays, each has shape [d]
         return_dict = {}
@@ -38,7 +38,7 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             sum_mse = np.zeros(config.pc_dim)
             sum_mae = np.zeros(config.pc_dim)
 
-            # weighted average of mse and mae for each PC across animals
+            # weighted average of mse and mae for each PC across sessions
             for idx in range(len(datum_size)):
                 sum_pred_num += pred_num[idx]
                 sum_mse += mse[idx].mean(axis=0)
@@ -97,27 +97,27 @@ def analyze_predictivity(config: NeuralPredictionConfig):
             return_dict['mse_improvement_chance'] = (baseline_mse - mean_mse) / baseline_mse
             return_dict['mae_improvement_chance'] = (baseline_mae - mean_mae) / baseline_mae
 
-        # plot 3: violin plot of relative mse and mae for each animal
-        baseline_mse = np.array(baseline_loss_dict['animal_copy_mse'])
-        baseline_mae = np.array(baseline_loss_dict['animal_copy_mae'])
+        # plot 3: violin plot of relative mse and mae for each session
+        baseline_mse = np.array(baseline_loss_dict['session_copy_mse'])
+        baseline_mae = np.array(baseline_loss_dict['session_copy_mae'])
 
-        animal_mse = np.array([x.mean(axis=0).sum() / n.sum() for x, n in zip(mse, pred_num)])
-        animal_mae = np.array([x.mean(axis=0).sum() / n.sum() for x, n in zip(mae, pred_num)])
+        session_mse = np.array([x.mean(axis=0).sum() / n.sum() for x, n in zip(mse, pred_num)])
+        session_mae = np.array([x.mean(axis=0).sum() / n.sum() for x, n in zip(mae, pred_num)])
 
-        mse_improvement = (baseline_mse - animal_mse) / baseline_mse
-        mae_improvement = (baseline_mae - animal_mae) / baseline_mae
+        mse_improvement = (baseline_mse - session_mse) / baseline_mse
+        mae_improvement = (baseline_mae - session_mae) / baseline_mae
 
-        return_dict['animal_mse'] = animal_mse
-        return_dict['animal_mae'] = animal_mae
-        return_dict['animal_mse_improvement'] = mse_improvement
-        return_dict['animal_mae_improvement'] = mae_improvement
-        return_dict['animal_baseline'] = baseline_mse
+        return_dict['session_mse'] = session_mse
+        return_dict['session_mae'] = session_mae
+        return_dict['session_mse_improvement'] = mse_improvement
+        return_dict['session_mae_improvement'] = mae_improvement
+        return_dict['session_baseline'] = baseline_mse
 
         grouped_plot(
             [[mse_improvement, mae_improvement]],
             ['MSE', 'MAE'],
             save_dir=fig_dir,
-            fig_name=f'{phase}_PC_loss_improvement_per_animal',
+            fig_name=f'{phase}_PC_loss_improvement_per_session',
             legend=False,
             x_label='Metric',
             y_label='Improvement over baseline',

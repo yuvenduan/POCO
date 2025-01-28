@@ -82,8 +82,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.perform_val = True
         self.perform_test = True
         self.log_every = 100
-        self.save_every = 100000
-        self.test_batch = 100000
+        self.save_every = 50000
 
         # autoregressive model config
         self.print_mode = 'error'
@@ -100,22 +99,6 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.rnn_rank = 4 # only for Low-Rank RNN (LRRNN)
         self.learnable_alpha = False
         self.rnn_residual_connection = True # only for Low-Rank RNN (LRRNN)
-
-        # meta-rnn model config
-        self.inner_wd = 0
-        self.inner_lr = 10
-        self.inner_train_step = 1
-        self.inner_test_time_train_step = 1
-        self.algorithm = 'maml'
-        self.use_low_dim_rnn = True
-        self.shared_rnn = False
-
-        # seq vae model config
-        self.encoder_rnn_type = 'BiGRU'
-        self.encoder_hidden_size = 512 
-        self.decoder_rnn_type = 'CTRNN'
-        self.decoder_hidden_size = 512
-        self.kl_loss_coef = 0.002
 
         # TCN model config
         self.stem_ratio = 6
@@ -142,13 +125,6 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.head_dropout = 0
         self.decomposition = 0
 
-        # linear model config
-        self.linear_input_length = 10
-        self.per_channel = False # if True, use a separate linear layer for each channel
-        self.autoregressive_prediction = False # if True, predict the next frame based on the previous frames, otherwise predict the next pred_length frames at once
-        self.shared_backbone # if True, use the same linear projection for different individuals
-        self.use_bias = False
-
         # vqvae model config
         self.block_hidden_size = 128
         self.vqvae_embedding_dim = 64
@@ -170,16 +146,16 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.latent_to_ob = 'linear' # or 'identity'
 
         # decoder config
-        self.encoder_dir = None
-        self.encoder_type = 'none' # or 'cnn', 'vqvae'
+        self.tokenizer_dir = None
+        self.tokenizer_type = 'none' # or 'cnn', 'vqvae'
         self.population_token = False # if True, use a single token for the whole population, otherwise use individual tokens
         self.population_token_dim = 512
-        self.encoder_state_dict_file = f'net_{self.max_batch}.pth'
+        self.tokenizer_state_dict_file = f'net_{self.max_batch}.pth'
         self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
         self.decoder_hidden_size = 256
         self.separate_projs = True
         self.decoder_proj_init = 'fan_in'
-        self.normalize_input = True
+        self.normalize_input = True # if True, normalize the input to the decoder
         self.mu_std_loss_coef = 0
         self.mu_std_module_mode = 'combined' # original mean / std; learned mean / std
         self.mu_std_separate_projs = False
@@ -193,43 +169,29 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         self.do_analysis = False
 
-
-class NeuralPredictionConfig(SupervisedLearningBaseConfig):
+class DatasetConfig:
 
     def __init__(self):
-        super().__init__()
+        self.dataset = None # set in configure_model_datasets.py
+        self.batch_size = None 
+        self.num_workers = None
+        self.pred_length = None
+        self.seq_length = None
+        self.show_chance = True
 
-        self.task_type = 'neural_prediction'
-        self.dataset = 'zebrafish' # or simulation
-        self.exp_types = EXP_TYPES
-
-        self.seq_length = 64 # the total length of a sequence
-        self.pred_length = 16 # the last pred_length frames will be predicted
         self.train_split = 0.6
         self.val_split = 0.2
         self.test_split = 0.2
-        self.target_mode = 'raw' # or 'derivative'
-        self.wdecay = 1e-4
-        self.perform_test = True
-        self.perform_val = True
-        self.patch_length = 1000 # train and val sets will be devided in each patch_length segment
-        self.loss_mode = 'autoregressive'
-        # or 'prediction', for the latter the target will be the next frame
-
-        # config for data
-        self.animal_ids = 'all'
-        # self.train_fish_ids = [] # all neural data (instead of just first 70%) of fish in this list will be used for training
+        self.patch_length = 1000 # train and val sets will be divided in each patch_length segment
+        self.session_ids = None # if not None, only use data from these sessions
+        self.animal_ids = None # if not None, only use data from these animals
         self.pc_dim = 512 # number of principal components to used for training, if None, predict original data
         self.fc_dim = None # number of functional clusters to used for training; pc_dim will be ignored if this is not None
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
-        self.sampling_freq = 1 # downsample the data to this rate, should be 1 for real neural data and 10 for simulated data
-        self.sampling_mode = 'point'
+        self.sampling_freq = 1 # downsample the data by this factor
+        self.sampling_mode = 'avg' 
         self.test_set_window_stride = 1 # larger stride will make the test set smaller but faster to evaluate
 
-        # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
-        # or 'average' (in which case we will average the neural activity within each brain region)
-        self.brain_regions = 'all' 
-        
         # config for simulated data
         self.n_neurons = 512 # only used for simulated dataset: the number of neurons used for training
         self.n_regions = 1
@@ -246,10 +208,49 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.use_eye_movements = False
         self.use_motor = False
 
+        # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
+        # or 'average' (in which case we will average the neural activity within each brain region)
+        self.brain_regions = 'all' 
+        self.exp_types = EXP_TYPES
+
+    def to_dict(self):
+        return {key: getattr(self, key) for key in self.__dict__}
+    
+    def __str__(self):
+        return str(self.__dict__)
+
+class NeuralPredictionConfig(SupervisedLearningBaseConfig):
+
+    def __init__(self):
+        super().__init__()
+
+        self.task_type = 'neural_prediction'
+
+        self.seq_length = 64 # the total length of a sequence
+        self.pred_length = 16 # the last pred_length frames will be predicted
+        self.target_mode = 'raw' # or 'derivative'
+        self.wdecay = 1e-4
+        self.perform_test = True
+        self.perform_val = True
+        self.loss_mode = 'autoregressive'
+        # or 'prediction', for the latter the target will be the next frame
+
+        # config for data
+        self.dataset = 'zebrafish' # or a list of dataset names
+        self.dataset_config = {}
+
         self.max_batch = 10000
         self.test_batch = 100000 # test on all available data 
         self.mem = 32
         self.do_analysis = False
-        
-        # whether to show chance performance for val / test set, could be slow for large datasets
-        self.show_chance = True
+
+    def to_dict(self):
+        # Convert to a JSON-serializable dictionary
+        config_dict = {key: getattr(self, key) for key in self.__dict__}
+        # Convert dataset_config dictionary values to dicts
+        if isinstance(self.dataset_config, dict):
+            config_dict['dataset_config'] = {
+                k: v.to_dict() if isinstance(v, DatasetConfig) else v
+                for k, v in self.dataset_config.items()
+            }
+        return config_dict

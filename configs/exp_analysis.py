@@ -9,7 +9,7 @@ from utils.config_utils import configs_dict_unpack, configs_transpose
 from analysis import plots, analyze_performance, analyze_embedding
 from configs import experiments
 from configs.configs import NeuralPredictionConfig
-from datasets.datasets import get_baseline_performance, Zebrafish, Simulation, VisualZebrafish
+from datasets.datasets import get_baseline_performance, Zebrafish, Simulation
 
 def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=None, start=0):
 
@@ -470,6 +470,19 @@ def compare_models_celegans_analysis():
         plot_train_test_curve=False
     )
 
+def compare_models_mice_analysis():
+    cfgs = experiments.compare_models_mice()
+    model_list = experiments.selected_model_list
+    plot_lists = {}
+    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'POYO']
+    compare_model_training_curves(
+        cfgs, 'compare_models_mice',
+        model_list=model_list, 
+        mode_list=['neurons', '512pc', ],
+        plot_model_lists=plot_lists,
+        plot_train_test_curve=False
+    )
+
 def virtual_stimulation_analysis():
     cfgs = experiments.compare_models_stim()
     from analysis.stim import virtual_stimulation
@@ -841,191 +854,6 @@ def compare_train_length_analysis():
             mode_list=['sim512', ],
             logarithm=True
         )
-
-def plot_traces(config: NeuralPredictionConfig, sub_save_dir='', titles=None, do_dmd=False, dmd_delay=20):
-    import matplotlib.pyplot as plt
-    from scipy import signal
-    from pydmd import DMD, BOPDMD, HankelDMD
-    from pydmd.plotter import plot_eigs, plot_summary, plot_modes_2D
-    from pydmd.preprocessing import hankel_preprocessing
-
-    config.train_split = 1
-    config.val_split = 0
-    config.patch_length = 500000
-    config.show_chance = False
-    
-    if config.dataset == 'zebrafish':
-        dataset = Zebrafish(config, 'train')
-    elif config.dataset == 'simulation':
-        dataset = Simulation(config, 'train')
-    elif config.dataset == 'zebrafish_visual':
-        dataset = VisualZebrafish(config, 'train')
-
-    all_dynamics = []
-    all_evs = [] 
-
-    for title, data in zip(titles, dataset.neural_data):
-        length = len(data)
-        plt.figure(figsize=(10, 10))
-
-        # a subplot for each pc
-        if length < 10:
-            print(f'{title} has less than 10 channels')
-            continue
-
-        for i in range(10):
-            ax = plt.subplot(10, 2, i * 2 + 1)
-            ax.plot(data[i])
-            smoothed = np.convolve(data[i], np.ones(250) / 250, mode='same')
-            # ax.plot(smoothed, color='red')
-            ax.set_ylabel(f'Dim {i + 1}')
-
-            # plot the power spectrum
-            ax = plt.subplot(10, 2, i * 2 + 2)
-            f, Pxx = signal.periodogram(data[i], fs=1)
-            ax.plot(f[1: ], Pxx[1: ])
-            ax.set_ylabel('Power')
-
-        save_dir = osp.join(FIG_DIR, 'traces_visualization', sub_save_dir)
-        os.makedirs(save_dir, exist_ok=True)
-        plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'{title}.pdf'))
-        plt.close()
-
-        # plot 2 sample patches of lenth 64 for each channel
-        plt.figure(figsize=(10, 10))
-        for i in range(10):
-            for j in range(2):
-                length = len(data[i])
-                
-                start = np.random.randint(0, length - 64)
-                ax = plt.subplot(10, 2, i * 2 + j + 1)
-                ax.plot(data[i][start: start + 64])
-                ax.set_ylabel(f'Dim {i + 1}')
-
-        plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'{title}_patch.pdf'))
-        plt.close()
-
-        if not do_dmd:
-            continue
-
-        # plot 3: mods found by DMD
-        # Build an exact DMD model with 12 spatiotemporal modes.
-        d = dmd_delay # delay might be required for noisy data
-        optdmd = BOPDMD(svd_rank=12, varpro_opts_dict={"tol": 0.1})
-        dmd = hankel_preprocessing(optdmd, d=d)
-        t = np.arange(0, len(data[0]))
-        delayt = t[: -d + 1]
-        dmd.fit(data, t=delayt)
-        # Plot a summary of the key spatiotemporal modes.
-        plot_summary(dmd, filename=osp.join(save_dir, f'{title}_dmd.pdf'), index_modes=(0, 2, 4))
-
-        plt.figure(figsize=(10, 12))
-        mode_order = np.argsort(-np.abs(dmd.amplitudes))
-        lead_eigs = dmd.eigs[mode_order]
-        lead_modes = dmd.modes[:, mode_order]
-        lead_dynamics = dmd.dynamics[mode_order]
-        lead_amplitudes = np.abs(dmd.amplitudes[mode_order])
-
-        all_dynamics.append((lead_dynamics, lead_eigs))
-
-        for i in range(12):
-            ax = plt.subplot(6, 2, i + 1)
-            ax.plot(lead_dynamics[i])
-            ax.set_ylabel(f'Mode {i + 1}')
-            ax.title.set_text(f'Eigenvalue: {lead_eigs[i].real:.4f} + {lead_eigs[i].imag:.4f}j')
-
-        plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'{title}_dmd_mode_dynamics.pdf'))
-        plt.close()
-
-        # Compute the singular values of the data matrix.
-        if isinstance(dmd, HankelDMD):
-            # Use time-delay data matrix to compute singular values.
-            snp = dmd.ho_snapshots
-        else:
-            # Use input data matrix to compute singular values.
-            snp = dmd.snapshots
-        s = np.linalg.svd(snp, full_matrices=False, compute_uv=False)
-        # Compute the percent of data variance captured by each singular value.
-        s_var = s * (100 / np.sum(s))
-        s_var = s_var[: 50]
-
-        all_evs.append(s_var[: 12])
-
-    # a single plot for all the dynamics
-    if len(all_dynamics) > 1:
-        n_modes = 10
-        plt.figure(figsize=(n_modes * 2 + 1, len(all_dynamics)))
-        for i, (lead_dynamics, lead_eigs) in enumerate(all_dynamics):
-            for j in range(n_modes):
-                ax = plt.subplot(len(all_dynamics), n_modes, i * n_modes + j + 1)
-                ax.plot(lead_dynamics[j], label=f'{j + 1} ({lead_eigs[j].real:.4f} + {lead_eigs[j].imag:.4f}j)')
-                if j == 0:
-                    ax.set_ylabel(titles[i])
-        plt.tight_layout()
-        plt.savefig(osp.join(save_dir, f'all_dynamics.pdf'))
-        plt.close()
-
-    if len(all_evs) > 1:
-        all_evs = np.array(all_evs).T
-        plots.error_plot(
-            np.arange(1, 13),
-            [all_evs],
-            figsize=(4, 3),
-            x_label='Mode Rank',
-            y_label='Explained Variance (%)',
-            legend=False,
-            save_dir=save_dir,
-            fig_name='all_ev',
-            suffix='.pdf'
-        )
-
-def plot_traces_analysis():
-    from utils.data_utils import get_exp_names, get_subject_ids
-    from copy import deepcopy
-    exp_names = get_exp_names()
-
-    """
-    config: NeuralPredictionConfig = experiments.compare_models_fc()[0][0]
-    for key in exp_names.keys():
-        all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
-        config.exp_types = [key]
-        plot_traces(deepcopy(config), f'spontaneous_FCs_{key}', all_titles, dmd_delay=20)
-    """
-
-    config = experiments.compare_models_pc()[0][0]
-    for key in exp_names.keys():
-        all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
-        config.exp_types = [key]
-        plot_traces(deepcopy(config), f'spontaneous_PCs_{key}', all_titles, dmd_delay=20)    
-
-    """
-    config = experiments.compare_models_single_neuron()[0][len(experiments.single_neuron_model_list)]
-    for key in exp_names.keys():
-        all_titles = [f'{key}_{i}' for i in range(1, len(exp_names[key]) + 1)]
-        config.exp_types = [key]
-        plot_traces(deepcopy(config), f'spontaneous_{key}', all_titles, dmd_delay=2)
-
-    config = experiments.compare_models_pc()[0][len(experiments.model_list)]
-    exp_names = get_subject_ids()
-    exp_names = [f'visual_{name}' for name in exp_names]
-    plot_traces(config, 'visual_PCs', exp_names, do_dmd=False)
-    """
-
-    for i, n_neurons in enumerate([512, 1024]):
-        config = experiments.compare_models_sim()[0][i * len(experiments.model_list)]
-        config.train_data_length = 5000
-        config.pc_dim = n_neurons
-        exp_names = [f'sim_{n_neurons}']
-        plot_traces(config, 'sim', exp_names, dmd_delay=2)
-
-    config = experiments.compare_models_single_neuron()[0][0]
-    exp_names = get_subject_ids()
-    exp_names = [f'visual_{name}' for name in exp_names]
-    plot_traces(config, 'visual', exp_names, do_dmd=False)
-    
 
 def detailed_performance_analysis():
     cfgs = experiments.compare_pc_dim()

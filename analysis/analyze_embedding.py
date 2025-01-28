@@ -47,7 +47,7 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
     os.makedirs(figure_dir, exist_ok=True)
 
     print("Unit embedding shape:", unit_embed.shape)
-    print("Session/Animal embedding shape:", sessiom_embed.shape)
+    print("Session embedding shape:", sessiom_embed.shape)
 
     # plot 1: show unit embedding
     if cfg.pc_dim is not None:
@@ -63,7 +63,7 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
 
         for exp_type in cfg.exp_types:
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
-                if cfg.animal_ids != 'all' and i_exp not in cfg.animal_ids:
+                if cfg.session_ids != 'all' and i_exp not in cfg.session_ids:
                     continue
 
                 filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
@@ -107,8 +107,8 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
                 plt.legend()
 
             plt.tight_layout()
-            os.makedirs(osp.join(figure_dir, f'animal_{i}'), exist_ok=True)
-            plt.savefig(osp.join(figure_dir, f'animal_{i}', f'unit_embedding_{method}.png'))
+            os.makedirs(osp.join(figure_dir, f'session_{i}'), exist_ok=True)
+            plt.savefig(osp.join(figure_dir, f'session_{i}', f'unit_embedding_{method}.png'))
             plt.close()
 
             print(f"Animal {i} unit embedding visualization saved for {method}", flush=True)

@@ -55,12 +55,12 @@ def get_grad_norm(model: nn.Module):
         g += param.grad.square().sum()
     return g
 
-def task_init(config_: BaseConfig, datum_size=None):
+def task_init(config_: BaseConfig, input_size=None):
     """initialize tasks"""
     task_type = config_.task_type
 
     if task_type == 'neural_prediction':
-        task_func_ = taskfunctions.NeuralPrediction(config_, datum_size=datum_size)
+        task_func_ = taskfunctions.NeuralPrediction(config_, input_size=input_size)
     else:
         raise NotImplementedError('task not implemented')
 

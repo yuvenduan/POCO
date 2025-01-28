@@ -1,10 +1,4 @@
-from .model import *
-from .tcn import *
+from .multi_session_models import *
 from .TOTEM.models.vqvae import vqvae
-from .poyo import POYO
-from .normalizer import *
-
-from . import transformer
-from . import s4
-from . import tcn
-from . import model_utils
+from .poyo.poyo import POYO
+from .layers.normalizer import *

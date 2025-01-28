@@ -93,9 +93,9 @@ def save_config(config, save_path, also_save_as_text=True, show_message=True):
     else:
         os.makedirs(save_path)
 
-    config_dict = config.__dict__
+    config_dict = config.to_dict()
     with open(os.path.join(save_path, 'config.json'), 'w') as f:
-        json.dump(config_dict, f)
+        json.dump(config_dict, f, indent=4)
 
     if also_save_as_text:
         with open(os.path.join(save_path, 'config.txt'), "w") as f:
@@ -103,20 +103,33 @@ def save_config(config, save_path, also_save_as_text=True, show_message=True):
                 f.write(str(k) + ' >>> ' + str(v) + '\n\n')
     return True
 
+import configs.configs
 
 def load_config(save_path):
-    """
-    Load config.
-    adapted from https://github.com/gyyang/olfaction_evolution
-    """
-    import configs.configs
     with open(os.path.join(save_path, 'config.json'), 'r') as f:
         config_dict = json.load(f)
-    config = configs.configs.BaseConfig()
-    for key, val in config_dict.items():
-        setattr(config, key, val)
-    return config
 
+    # Create a new instance of your config class
+    config = configs.configs.NeuralPredictionConfig()
+
+    # Set attributes, handling nested structures
+    for key, val in config_dict.items():
+        if key == "dataset_config" and isinstance(val, dict):
+            # If `dataset_config` is a dictionary, reinstantiate its values as DatasetConfig objects
+            dataset_config_dict = {}
+            for dataset_key, dataset_val in val.items():
+                if isinstance(dataset_val, dict):  # Ensure it's a valid dictionary
+                    dataset_config = configs.configs.DatasetConfig()
+                    for k, v in dataset_val.items():
+                        setattr(dataset_config, k, v)
+                    dataset_config_dict[dataset_key] = dataset_config
+                else:
+                    raise ValueError(f"Unexpected value in dataset_config for key {dataset_key}: {dataset_val}")
+            setattr(config, key, dataset_config_dict)
+        else:
+            setattr(config, key, val)
+
+    return config
 
 def _vary_config_combinatorial(base_config, config_ranges):
     """Return combinatorial configurations.

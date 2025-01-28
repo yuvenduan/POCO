@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models.poyo_nn import (
+from models.poyo import (
     Embedding,
     InfiniteVocabEmbedding,
     PerceiverRotary,
@@ -27,19 +27,21 @@ class POYO(nn.Module):
         atn_dropout=0.0,
         emb_init_scale=0.02,
         use_memory_efficient_attn=True,
-        datum_size=None,
+        input_size=None,
         query_length=1,
         T_step=1,
         unit_dropout=0.0,
         output_latent=False, # if True, return the latent representation, else return the query representation
-        t_max=100
+        t_max=100,
+        num_datasets=1,
     ):
         super().__init__()
 
         self.input_proj = nn.Linear(input_dim, dim)
-        self.unit_emb = Embedding(sum(datum_size), dim, init_scale=emb_init_scale)
-        self.session_emb = Embedding(len(datum_size), dim, init_scale=emb_init_scale)
+        self.unit_emb = Embedding(sum(input_size), dim, init_scale=emb_init_scale)
+        self.session_emb = Embedding(len(input_size), dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
+        self.dataset_emb = Embedding(num_datasets, dim, init_scale=emb_init_scale)
         self.num_latents = num_latents
         self.query_length = query_length
         self.unit_dropout = unit_dropout
@@ -71,14 +73,14 @@ class POYO(nn.Module):
         input_seqlen, # (B, )
         # output sequence
         session_index,  # sum(B * D)
-        pred_step=1, 
+        dataset_index, # sum(B * D)
     ):
 
         # input
         L = x.shape[1]
         B = input_seqlen.shape[0]
         T = L * self.T_step
-        unit_embedding = self.unit_emb(unit_indices) # sum(B * D), dim
+        unit_embedding = self.unit_emb(unit_indices) + self.session_emb(session_index) + self.dataset_emb(dataset_index) # sum(B * D), dim
         inputs = unit_embedding.unsqueeze(1) + self.input_proj(x) # sum(B * D), L, dim
 
         if self.training and self.unit_dropout > 0.0 and np.random.rand() < 0.8:
@@ -107,7 +109,7 @@ class POYO(nn.Module):
         latent_timestamps = latent_timestamps.repeat(B) # B * N_latent
 
         # outputs
-        output_queries = self.session_emb(session_index) # sum(B * D), dim
+        output_queries = self.session_emb(session_index) + self.dataset_emb(dataset_index) # sum(B * D), dim
         output_queries = output_queries + unit_embedding # sum(B * D), dim
         sumD = output_queries.shape[0]
         output_queries = output_queries.repeat_interleave(self.query_length, dim=0) # sum(B * D * q_len), dim

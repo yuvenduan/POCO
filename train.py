@@ -1,21 +1,21 @@
 import logging
 import os.path as osp
 import random
-from datetime import datetime
-
+import itertools
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 
 from configs.config_global import LOG_LEVEL, NP_SEED, TCH_SEED, USE_CUDA, DATA_DIR
-from configs.configs import BaseConfig, SupervisedLearningBaseConfig
+from configs.configs import BaseConfig, SupervisedLearningBaseConfig, NeuralPredictionConfig
 from datasets.dataloader import DatasetIters
 from tasks.taskfunctions import TaskFunction
 from models.model_utils import model_init
 from utils.config_utils import load_config
 from utils.logger import Logger
 from utils.train_utils import (get_grad_norm, grad_clipping, task_init, log_complete)
+from datetime import datetime
 
 def train_from_path(path):
     """Train from a path with a config file in it."""
@@ -45,54 +45,27 @@ def evaluate_performance(
     Test the model. Print the test loss and accuracy through logger. Save the model if it is the best model.
     """
 
-    extra_out = []
     net.eval()
-                
-    if config.perform_val:
-        correct = 0
-        total = 0
-        test_loss = 0.0
-        test_b = 0
+    with torch.no_grad():
 
-        with torch.no_grad():
-            test_data.reset()
-            
-            for t_step_ in range(min(test_data.min_iter_len, config.test_batch)):
-                loss_weighted, num_weighted, num_corr_weighted = 0, 0, 0
-                for i_tloader, test_iter in enumerate(test_data.data_iters):
-                    mod_weight = config.mod_w[i_tloader]
-                    # net.set_mode(i_tloader)
+        test_data.reset()
+        all_loss = 0
 
+        for i_tloader, test_iter in enumerate(test_data.data_iters):
+            total = 0
+            test_loss = 0.0
+            while True:
+                try:
                     t_data = next(test_iter)
-
+                    t_data = get_full_input(t_data, i_tloader, config, test_data.input_sizes)
                     result = task_func.roll(net, t_data, phase)
-                    loss, num, num_corr = result[: 3]
-                    extra_out.append(result)
-
-                    loss *= mod_weight
-                    num *= mod_weight
-                    num_corr *= mod_weight
-
-                    loss_weighted += loss
-                    num_weighted += num
-                    num_corr_weighted += num_corr
-
-                test_loss += loss_weighted.item()
-                total += num_weighted
-                correct += num_corr_weighted
-
-                test_b += 1
-                if test_b >= config.test_batch:
+                    loss, num = result[: 2]
+                    test_loss += loss.item() * num
+                    total += num
+                except StopIteration:
                     break
-
-        if config.print_mode == 'accuracy':
-            test_acc = 100 * correct / total
-        else:
-            test_error = correct / total
-        avg_testloss = test_loss / test_b
-
-    else:
-        avg_testloss = train_loss
+            all_loss += test_loss / total * config.mod_w[i_tloader]
+        avg_testloss = all_loss / sum(config.mod_w)
     
     logger.log_tabular('TestLoss', avg_testloss)
     testloss_list.append(avg_testloss)
@@ -102,23 +75,43 @@ def evaluate_performance(
         best = False
         if avg_testloss <= min(testloss_list):
             best = True
-            torch.save(net.state_dict(),
-                        osp.join(config.save_path, 'net_best.pth'))
+            torch.save(net.state_dict(), osp.join(config.save_path, 'net_best.pth'))
     else:
         best = True
 
-    if config.perform_val:
-        if config.print_mode == 'accuracy':
-            logger.log_tabular('TestAcc', test_acc)
+    task_func.after_testing_callback(
+        logger=logger, save_path=config.save_path, is_best=best, batch_num=i_b, testing=testing
+    )
+
+def get_full_input(batch, dataset_idx, config: NeuralPredictionConfig, input_sizes):
+    """
+    Use the input list for one dataset to create the full input list for all datasets.
+    """
+    # prepare an empty list
+    input_size_list = list(itertools.chain(*input_sizes))
+    n_sessions = [len(input_size) for input_size in input_sizes]
+    dataset_start_idx = [sum(n_sessions[:i]) for i in range(len(n_sessions) + 1)]
+
+    batch_input, batch_target, batch_info = batch
+
+    input_list = []
+    target_list = []
+    info_list = []
+
+    for i, size in enumerate(input_size_list):
+        if i >= dataset_start_idx[dataset_idx] and i < dataset_start_idx[dataset_idx + 1]:
+            idx = i - dataset_start_idx[dataset_idx]
+            input_list.append(batch_input[idx])
+            target_list.append(batch_target[idx])
+            info_list.append(batch_info[idx])
         else:
-            logger.log_tabular('TestError', test_error)
+            input_list.append(torch.zeros(config.seq_length - config.pred_length, 0, size))
+            target_list.append(torch.zeros(config.seq_length - 1, 0, size))
+            info_list.append({'session_idx': i, })
 
-        task_func.after_testing_callback(
-            batch_info=extra_out, logger=logger, 
-            save_path=config.save_path, is_best=best, batch_num=i_b, testing=testing
-        )
+    return input_list, target_list, info_list
 
-def model_train(config: SupervisedLearningBaseConfig):
+def model_train(config: NeuralPredictionConfig):
     """
     The main training function. 
     This function initializes the task, dataset, network, optimizer, and learning rate scheduler.
@@ -146,17 +139,15 @@ def model_train(config: SupervisedLearningBaseConfig):
 
     # initialize dataset
     train_data = DatasetIters(config, 'train')
-    if config.perform_val:
-        test_data = DatasetIters(config, 'val')
-    else:
-        test_data = None
+    assert config.perform_val
+    test_data = DatasetIters(config, 'val')
+    test_baseline_performance = test_data.get_baselines()
 
     # initialize task
-    task_func: TaskFunction = task_init(config, train_data.datum_sizes[0])
-
-    # initialize network
-    net = model_init(config, train_data.datum_sizes[0])
-
+    task_func: TaskFunction = task_init(config, train_data.input_sizes)
+    task_func.mse_baseline['val'] = test_baseline_performance
+    net = model_init(config, train_data.input_sizes)
+    
     # initialize optimizer
     if config.optimizer_type == 'Adam':
         optimizer = torch.optim.Adam(net.parameters(), lr=config.lr, weight_decay=config.wdecay)
@@ -204,9 +195,8 @@ def model_train(config: SupervisedLearningBaseConfig):
 
             for i_loader, train_iter in enumerate(train_data.data_iters):
                 mod_weight = config.mod_w[i_loader]
-                # net.set_mode(i_loader)
-
                 data = next(train_iter)
+                data = get_full_input(data, i_loader, config, train_data.input_sizes)
                 loss += task_func.roll(net, data, 'train') * mod_weight
 
             loss.backward()
@@ -253,8 +243,9 @@ def model_eval(config: SupervisedLearningBaseConfig):
     random.seed(config.seed)
 
     test_data = DatasetIters(config, 'test')
-    net = model_init(config, test_data.datum_sizes[0])
-    task_func = task_init(config, test_data.datum_sizes[0])
+    task_func: TaskFunction = task_init(config, test_data.input_sizes)
+    task_func.mse_baseline['val'] = test_data.get_baselines()
+    net = model_init(config, test_data.input_sizes)
     net.load_state_dict(torch.load(osp.join(config.save_path, 'net_best.pth'), weights_only=True))
 
     logger = Logger(output_dir=config.save_path, output_fname='test.txt', exp_name=config.experiment_name)

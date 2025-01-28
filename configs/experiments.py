@@ -25,76 +25,6 @@ def test():
     configs = configure_dataset(configs)
     return configs
 
-def sim_compare_noise():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'sim_compare_noise'
-    config.experiment_name = 'sim_compare_train_length'
-    config.loss_mode = 'autoregressive'
-    config.dataset = 'simulation'
-    config.train_data_length = 3000
-    config.pc_dim = None
-
-    config_ranges = OrderedDict()
-    config_ranges['n_regions'] = [1, ]
-    config_ranges['n_neurons'] = [500, ]
-    config_ranges['rnn_type'] = ['Transformer', 'RNN', ]
-    config_ranges['sim_noise_std'] = [0, 0.01, 0.03, 0.05, 0.1, 0.2, ]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
-    return configs
-
-def sim_compare_sparsity():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'sim_compare_sparsity'
-    config.loss_mode = 'autoregressive'
-    config.dataset = 'simulation'
-    config.ga = 1.8
-    config.pc_dim = None
-    config.mem = 64
-
-    config_ranges = OrderedDict()
-    config_ranges['n_regions'] = [1, ]
-    config_ranges['n_neurons'] = [1500, ]
-    config_ranges['rnn_type'] = ['Transformer', 'RNN', ]
-    config_ranges['sparsity'] = [0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1, ]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    return configs
-
-def sim_partial_obervable():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'sim_partial_obervable'
-    config.loss_mode = 'autoregressive'
-    config.dataset = 'simulation'
-    config.train_data_length = 3000
-    config.pc_dim = None
-
-    config_ranges = OrderedDict()
-    config_ranges['n_regions'] = [1, ]
-    config_ranges['n_neurons'] = [500, ]
-    config_ranges['rnn_type'] = ['Transformer', 'RNN', ]
-    config_ranges['portion_observable_neurons'] = [1, 0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0.02, 0.01]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
-    return configs
-
-def sim_compare_ga():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'sim_compare_ga'
-    config.loss_mode = 'autoregressive'
-    config.dataset = 'simulation'
-    config.train_data_length = 3000
-    config.pc_dim = None
-
-    config_ranges = OrderedDict()
-    config_ranges['n_regions'] = [1, ]
-    config_ranges['n_neurons'] = [500, ]
-    config_ranges['rnn_type'] = ['Transformer', 'RNN', ]
-    config_ranges['ga'] = [1.4, 1.6, 1.8, 2.0, 2.2, ]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
-    return configs
-
 def vqvae_pretrain(config: NeuralPredictionConfig, config_ranges, seeds=2):
     config.model_type = 'VQVAE'
     config.loss_mode = 'reconstruction'
@@ -312,15 +242,89 @@ def compare_unit_dropout():
     configs = configure_dataset(configs)
     return configs
 
-"""
-model_list = [
-    # 'POYO_TOTEM', 'Linear_TOTEM', 'MLP_TOTEM', 'Transformer_TOTEM',
-    'POYO', 'Linear', 'MLP', 'Transformer', 'TCN',
-    'AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM',
-    'Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN', 
-]
-"""
-model_list = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
+single_session_model_list = ['POYO', 'PaiFilter', 'Linear', 'DLinear', 'TCN', 'AR_Transformer', 'Latent_PLRNN', ]
+multi_session_model_list = ['POYO', 'Linear', 'Latent_PLRNN', 'MultiAR_Transformer', ]
+single_neuron_model_list = ['POYO', 'Linear', 'DLinear']
+
+def compare_model_multi_species():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multi_species'
+    config.dataset_label = ['zebrafish_pc', 'celegans', 'mice', ]
+    config.max_batch = 20000
+
+    config_ranges = OrderedDict()
+    config_ranges['model_label'] = multi_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_zebrafish_pc_single_session():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_zebrafish_single_session'
+    config.max_batch = 5000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = [f'zebrafish_pc-{session}' for session in range(19)]
+    config_ranges['model_label'] = single_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_celegans_single_session():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_celegans_single_session'
+    config.max_batch = 5000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = [f'celegans-{session}' for session in range(5)]
+    config_ranges['model_label'] = single_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_mice_single_session():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_mice_single_session'
+    config.max_batch = 5000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = [f'mice-{session}' for session in range(12)]
+    config_ranges['model_label'] = single_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_multi_session():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multi_session'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+    config_ranges['model_label'] = multi_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_sim():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_sim'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['sim_128', 'sim_512', ]
+    config_ranges['model_label'] = single_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
 
 def compare_models_pc():
     config = NeuralPredictionConfig()
@@ -328,85 +332,11 @@ def compare_models_pc():
 
     config_ranges = OrderedDict()
     config_ranges['dataset_label'] = ['spontaneous_pc', ]
-    config_ranges['model_label'] = model_list
+    config_ranges['model_label'] = single_session_model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
     return configs
-
-def compare_models_fc():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'compare_models'
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['spontaneous_fc', ]
-    config_ranges['model_label'] = model_list
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-def compare_models_long_time_scale():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'compare_models_long_time_scale'
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['spontaneous_pc', 'visual_pc', ]
-    config_ranges['sampling_freq'] = [2, 5, ]
-    config_ranges['model_label'] = model_list
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-def compare_models_sim():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'compare_models'
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['sim256', 'sim1024', ]
-    config_ranges['normalize_input'] = [True, ]
-    config_ranges['model_label'] = model_list
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-def conv_encoder_test():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'conv_encoder_test'
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['spontaneous', 'spontaneous_pc',  ]
-    config_ranges['model_label'] = ['POYO_cnn', 'Linear_cnn', ]
-    config_ranges['conv_channels'] = [64, 512, ]
-    config_ranges['conv_stride'] = [4, 16, ]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-def compare_population_token_dim():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'compare_population_token_dim'
-    config.population_token = True
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['spontaneous_pc', ]
-    config_ranges['compression_factor'] = [4, 16]
-    config_ranges['population_token_dim'] = [128, 512, ]
-    config_ranges['model_label'] = ['Transformer', 'Linear', 'MLP']
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-single_neuron_model_list = [
-    'POYO', 'Linear',
-]
 
 def compare_models_single_neuron():
     config = NeuralPredictionConfig()
@@ -415,22 +345,6 @@ def compare_models_single_neuron():
     config_ranges = OrderedDict()
     config_ranges['dataset_label'] = ['spontaneous', 'stim', ]
     config_ranges['model_label'] = single_neuron_model_list
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-def compare_models_individual_region():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'compare_models_individual_region'
-    config.dataset = 'zebrafish'
-    config.pc_dim = None
-    config.normalize_mode = 'zscore'
-    config.dataset_label = 'spontaneous'
-
-    config_ranges = OrderedDict()
-    config_ranges['brain_regions'] = ['l_LHb', 'l_MHb', 'l_dthal', 'l_gc', 'l_raphe', 'l_vent', 'l_vthal', ]
-    config_ranges['model_label'] = selected_model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -481,7 +395,7 @@ def compare_train_length_sim():
     config.experiment_name = 'compare_train_length_sim'
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = [f'sim{n}' for n in [64, 128, 256, 384, 512, 1024, 1536, ]]
+    config_ranges['dataset_label'] = [f'sim_{n}' for n in [64, 128, 256, 384, 512, 1024, 1536, ]]
     config_ranges['model_label'] = ['Linear', 'Latent_PLRNN', 'POYO']
     config_ranges['train_data_length'] = [256, 512, 1024, 2048, 4096, 16384, 32768, 65536, ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)

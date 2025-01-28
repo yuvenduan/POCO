@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchtyping import TensorType
 
-from models.poyo_nn import RotaryEmbedding, RotaryCrossAttention, RotarySelfAttention
+from models.poyo import RotaryEmbedding, RotaryCrossAttention, RotarySelfAttention
 
 
 class GEGLU(nn.Module):

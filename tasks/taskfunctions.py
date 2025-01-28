@@ -6,11 +6,12 @@ import torch.nn.functional as F
 import os
 import analysis.plots as plots
 import numpy as np
+import itertools
 
 from configs.config_global import DEVICE
 from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 from utils.logger import Logger
-from models import MultiFishSeqVAE, vqvae, Decoder
+from models import Decoder
 from typing import List
 
 def data_batch_to_device(data_b, device=DEVICE):
@@ -33,21 +34,13 @@ class TaskFunction:
         """
         Phase can be 'train', 'val', or 'test'.
         In the training mode (train=True), this method should return a scalar representing the training loss.
-        In the eval or test mode, this method should return a tuple of at least 3 elements: 
-        (
-            test loss, 
-            number of predictions (often equal to batchsize), 
-            number of correct prediction (in classification tasks) or sum of error (in regression tasks),
-            ... (additional information that might be used in callback functions)
-        )
+        In the eval or test mode, this method should return a pair of scalars: the loss and the number of predictions
         """
         raise NotImplementedError
 
-    def after_testing_callback(self, batch_info: List[tuple], logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
+    def after_testing_callback(self, logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
         """
         An optional function called after the test stage
-
-        :param batch_info: list of return values of task.roll(mode, data_batch, test=True) for batches of data in the test set
         :param is_best: whether the validation result is the best one; always True for the test set (when testing=True)
         :param batch_num: number of batches used for training
         :param testing: whether the test is on the test set
@@ -67,7 +60,7 @@ class NeuralPrediction(TaskFunction):
     Task function for autoregressive neural prediction
     """
 
-    def __init__(self, config: NeuralPredictionConfig, datum_size):
+    def __init__(self, config: NeuralPredictionConfig, input_size):
         self.criterion = nn.MSELoss(reduction='sum')
         self.do_analysis = config.do_analysis
         self.loss_mode = config.loss_mode
@@ -75,7 +68,15 @@ class NeuralPrediction(TaskFunction):
         self.seq_len = config.seq_length
         self.target_mode = config.target_mode
         self.config = config
-        self.datum_size = datum_size
+        self.mse_baseline = {}
+
+        self.session_ids = {} # session id for each dataset
+        n_sessions = 0
+        for dataset, size in zip(config.dataset_label, input_size):
+            self.session_ids[dataset] = list(range(n_sessions, n_sessions + len(size)))
+            n_sessions += len(size)
+        print(f'session_ids: {self.session_ids}')
+        self.input_size = list(itertools.chain(*input_size))
         self._init_info()
 
         assert self.loss_mode in ['prediction', 'autoregressive', 'reconstruction', 'reconstruction_prediction']
@@ -91,7 +92,7 @@ class NeuralPrediction(TaskFunction):
         self.sum_mae = {'train': [], 'val': [], 'test': []}
         
         for phase in ['train', 'val', 'test']:
-            for size in self.datum_size:
+            for size in self.input_size:
                 self.pred_num[phase].append(np.zeros(size))
                 L = self.pred_step if self.pred_step > 0 else self.seq_len
                 self.sum_mse[phase].append(np.zeros((L, size)))
@@ -105,7 +106,7 @@ class NeuralPrediction(TaskFunction):
         
         input, target, info_list = data_batch
         input, target = data_batch_to_device((input, target))
-        output = model(input, pred_step=self.pred_step)
+        output = model(input)
     
         task_loss = torch.zeros(1).to(DEVICE)
         pred_num = 0
@@ -152,38 +153,59 @@ class NeuralPrediction(TaskFunction):
 
         task_loss = task_loss / max(1, pred_num)
 
-        if isinstance(model, MultiFishSeqVAE):
-            self.recon_loss_list[phase].append(task_loss.item())
-            task_loss += model.kl_loss * self.config.kl_loss_coef / self.config.batch_size
-            self.vae_loss_list[phase].append(model.kl_loss.item() / self.config.batch_size)
-        elif isinstance(model, vqvae):
-            self.recon_loss_list[phase].append(task_loss.item())
-            task_loss += model.vq_loss
-            self.vae_loss_list[phase].append(model.vq_loss.item())
-        elif isinstance(model, Decoder):
-            pass # loss on predicted mu/std no longer used
-            # here recon loss / vae loss denotes mean and std prediction loss
-            """
-            assert self.loss_mode == 'prediction'
-            mean_loss = F.mse_loss(model.mu, torch.cat(mean_list))
-            std_loss = F.mse_loss(model.std, torch.cat(std_list))
-            task_loss += (mean_loss + std_loss) * model.mu_std_loss_coef
-            self.recon_loss_list[phase].append(mean_loss.item())
-            self.vae_loss_list[phase].append(std_loss.item())
-            """
         if train_flag:
             return task_loss
         else:
-            return task_loss, pred_num, task_loss.item() * pred_num
+            return task_loss, pred_num
         
-    def after_testing_callback(self, batch_info: List[tuple], logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
+    def plot_prediction(self, save_path: str, phase: str):
+        # visualize prediction of the first/last dimension for 10 random trials
+        for pc in [0, 20, 50, -1]:
+            if pc >= max(self.input_size):
+                continue
+
+            preds = []
+            targets = []
+
+            for iter in range(10):
+                batch_idx = np.random.randint(len(self.sample_trials[phase]))
+                data = self.sample_trials[phase][batch_idx]
+                sample_idx = np.random.randint(data[0].shape[1])
+
+                pred = data[0][:, sample_idx, pc]
+                target = data[1][:, sample_idx, pc]
+                inp = data[2][:, sample_idx, pc]
+
+                if self.target_mode == 'raw':
+                    if self.loss_mode == 'prediction': # get the whole trial
+                        pred = np.concatenate([inp, pred])
+                        target = np.concatenate([inp, target])
+                    preds.append(pred)
+                    targets.append(target)
+                else:
+                    assert self.loss_mode != 'prediction', 'Not implemented'
+                    raw_target = inp[-1] + np.cumsum(data[1][-self.pred_step:, sample_idx, pc])
+                    targets.append(np.concatenate([inp[1: ], raw_target]))
+                    pred = inp[-1] + np.cumsum(data[0][-self.pred_step:, sample_idx, pc])
+                    preds.append(np.concatenate([inp[: -1] + data[0][: -self.pred_step, sample_idx, pc], pred]))
+
+            plots.pred_vs_target_plot(
+                list(zip(preds, targets)), 
+                os.path.join(save_path, f'{phase}_pred_vs_target'), 
+                f'best_dim{pc}',
+                len(preds[0]) - self.pred_step
+            )
+        
+    def after_testing_callback(self, logger: Logger, save_path: str, is_best: bool, batch_num: int, testing: bool = False):
 
         # compute mean loss for the prediction part
         for phase in ['train', 'val']:
 
+            if phase == 'val':
+                assert self.mse_baseline.get(phase) is not None, 'mse_baseline is not set'
+
             if np.sum(self.pred_num[phase][0]) == 0:
                 continue
-
             if len(self.recon_loss_list[phase]) > 0:
                 mean_recon_loss = np.mean(self.recon_loss_list[phase])
                 logger.log_tabular(f'{phase}_recon_loss', mean_recon_loss)
@@ -191,57 +213,33 @@ class NeuralPrediction(TaskFunction):
                 mean_vae_loss = np.mean(self.vae_loss_list[phase])
                 logger.log_tabular(f'{phase}_vae_loss', mean_vae_loss)
 
-            sum_pred_num = 0
-            sum_mse = 0
-            sum_mae = 0
-            for idx in range(len(self.datum_size)):
-                sum_pred_num += self.pred_num[phase][idx].sum() * (self.pred_step if self.pred_step > 0 else self.seq_len)
-                sum_mse += self.sum_mse[phase][idx].sum()
-                sum_mae += self.sum_mae[phase][idx].sum()
+            for dataset, session_ids in self.session_ids.items():
+                sum_pred_num = 0
+                sum_mse = 0
+                sum_mae = 0
+                avg_mse_score = 0
 
-            if phase == 'val':
-                logger.log_tabular(f'{phase}_pred_num', sum_pred_num)
-            logger.log_tabular(f'{phase}_mse', sum_mse / sum_pred_num)
-            logger.log_tabular(f'{phase}_mae', sum_mae / sum_pred_num)
+                for idx in session_ids:
+                    sum_pred_num += self.pred_num[phase][idx].sum() * (self.pred_step if self.pred_step > 0 else self.seq_len)
+                    sum_mse += self.sum_mse[phase][idx].sum()
+                    sum_mae += self.sum_mae[phase][idx].sum()
+
+                    if phase == 'val':
+                        assert self.pred_num[phase][idx].sum() > 0, f'no prediction for session {idx}, is the test set empty?'
+                        mse = self.sum_mse[phase][idx].sum() / self.pred_num[phase][idx].sum() / (self.pred_step if self.pred_step > 0 else self.seq_len)
+                        avg_mse_score += 1 - mse / self.mse_baseline[phase][idx]
+
+                avg_mse_score /= len(session_ids)
+
+                if phase == 'val':
+                    logger.log_tabular(f'{dataset}_{phase}_pred_num', int(sum_pred_num))
+                    logger.log_tabular(f'{dataset}_{phase}_score', avg_mse_score)
+                
+                logger.log_tabular(f'{dataset}_{phase}_mse', sum_mse / sum_pred_num)
+                logger.log_tabular(f'{dataset}_{phase}_mae', sum_mae / sum_pred_num)
             
             if is_best and len(self.sample_trials[phase]) > 0:
-
-                # visualize prediction of the first/last dimension for 10 random trials
-                for pc in [0, 20, 50, -1]:
-                    if pc >= max(self.datum_size):
-                        continue
-
-                    preds = []
-                    targets = []
-
-                    for iter in range(10):
-                        batch_idx = np.random.randint(len(self.sample_trials[phase]))
-                        data = self.sample_trials[phase][batch_idx]
-                        sample_idx = np.random.randint(data[0].shape[1])
-
-                        pred = data[0][:, sample_idx, pc]
-                        target = data[1][:, sample_idx, pc]
-                        inp = data[2][:, sample_idx, pc]
-
-                        if self.target_mode == 'raw':
-                            if self.loss_mode == 'prediction': # get the whole trial
-                                pred = np.concatenate([inp, pred])
-                                target = np.concatenate([inp, target])
-                            preds.append(pred)
-                            targets.append(target)
-                        else:
-                            assert self.loss_mode != 'prediction', 'Not implemented'
-                            raw_target = inp[-1] + np.cumsum(data[1][-self.pred_step:, sample_idx, pc])
-                            targets.append(np.concatenate([inp[1: ], raw_target]))
-                            pred = inp[-1] + np.cumsum(data[0][-self.pred_step:, sample_idx, pc])
-                            preds.append(np.concatenate([inp[: -1] + data[0][: -self.pred_step, sample_idx, pc], pred]))
-
-                    plots.pred_vs_target_plot(
-                        list(zip(preds, targets)), 
-                        os.path.join(save_path, f'{phase}_pred_vs_target'), 
-                        f'best_dim{pc}',
-                        len(preds[0]) - self.pred_step
-                    )
+                self.plot_prediction(save_path, phase)
 
         if is_best:
             for phase in ['train', 'val']:

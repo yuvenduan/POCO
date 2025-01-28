@@ -1,142 +1,166 @@
 import os
 import os.path as osp
 import logging
-from configs.configs import NeuralPredictionConfig
+from configs.configs import NeuralPredictionConfig, DatasetConfig
 
-def configure_dataset(configs: dict, large=False):
+def configure_dataset(configs: dict):
+    """
+    Add dataset configurations to the NeuralPredictionConfig objects according to the dataset label
+
+    The dataset label has the following format: {dataset_name}_{dataset_type}(-{session_id}), where:
+    - dataset_name: the name of the dataset (e.g. zebrafish, celegans, mice, sim)
+    - dataset_type: the type of the dataset (e.g. pc, fc, avg)
+    - session_id: the id of the session (e.g. 0, 1, 2), if not specified, all sessions are used
+    """
+
     for seed, config_list in configs.items():
         for config in config_list:
             config: NeuralPredictionConfig
-            label = config.dataset_label
+            labels = config.dataset_label
+            config.dataset = []
 
-            if label == 'spontaneous_pc':
-                config.dataset = 'zebrafish'
-                config.pc_dim = 512
-            elif label == 'spontaneous':
-                config.dataset = 'zebrafish'
-                config.pc_dim = None
-                config.batch_size = 8 * (1 + large)
-                config.mem = 128
-                config.test_set_window_stride = 8
-            elif label == 'spontaneous_fc':
-                config.dataset = 'zebrafish'
-                config.pc_dim = None
-                config.fc_dim = 500
-                config.normalize_mode = 'zscore'
-            elif label == 'visual_pc':
-                config.dataset = 'zebrafish_visual'
-                config.pc_dim = 512
-                config.use_stimuli = False
-                config.use_eye_movements = False
-            elif label == 'visual':
-                config.dataset = 'zebrafish_visual'
-                config.pc_dim = None
-                config.use_stimuli = False
-                config.use_eye_movements = False
-                config.batch_size = 1 * (1 + large)
-                config.mem = 128
-                config.test_set_window_stride = 32
-            elif label == 'stim_avg':
-                config.dataset = 'zebrafish_stim'
-                config.pc_dim = None
-                config.normalize_mode = 'zscore'
-                config.brain_regions = 'average'
-                config.exp_types = ['control']
-            elif label == 'stim_pc':
-                config.dataset = 'zebrafish_stim'
-                config.pc_dim = 512
-                config.exp_types = ['control']
-            elif label == 'stim':
-                config.dataset = 'zebrafish_stim'
-                config.pc_dim = None
-                config.exp_types = ['control']
-                config.batch_size = 4
-                config.mem = 128
-                config.test_set_window_stride = 32
-            elif label == 'celegans_pc':
-                config.dataset = 'celegans'
-                config.pc_dim = 100
-            elif label == 'celegans':
-                config.dataset = 'celegans'
-                config.pc_dim = None
-            elif label == 'mice_pc':
-                config.dataset = 'mice'
-                config.pc_dim = 512
-            elif label == 'mice':
-                config.dataset = 'mice'
-                config.pc_dim = None
-            elif label[:6] == 'sim_pc':
-                config.dataset = 'simulation'
-                config.pc_dim = 512
-                config.sampling_freq = 5
-                config.n_neurons = int(label[6:])
-                config.mem = 64
-            elif label[:3] == 'sim':
-                config.dataset = 'simulation'
-                config.pc_dim = None
-                config.sampling_freq = 5
-                config.n_neurons = int(label[3:])
-                config.mem = 128
-                if config.n_neurons > 512:
-                    config.batch_size = 16
-            else:
-                raise ValueError(f'Unknown dataset label: {label}')
+            if isinstance(labels, str):
+                labels = [labels]
+                config.dataset_label = labels
+
+            for label in labels:
+            
+                session_id = label.split('-')[1] if len(label.split('-')) > 1 else None
+                label_prefix = label.split('-')[0]
+                dataset_name = label_prefix.split('_')[0]
+                dataset_type = label_prefix.split('_')[1] if len(label.split('_')) > 1 else None
+                dataset_config = DatasetConfig()
+
+                dataset_config.batch_size = config.batch_size
+                dataset_config.num_workers = config.num_workers
+                dataset_config.pred_length = config.pred_length
+                dataset_config.seq_length = config.seq_length
+                if session_id is not None:
+                    dataset_config.session_ids = [int(session_id)]
+
+                if dataset_name == 'zebrafish':
+                    config.dataset.append('zebrafish')
+                    if dataset_type == 'pc':
+                        dataset_config.pc_dim = 512
+                    elif dataset_type == 'fc':
+                        dataset_config.fc_dim = 500
+                    elif dataset_type == None:
+                        dataset_config.pc_dim = None
+                        dataset_config.test_set_window_stride = 8
+                        dataset_config.batch_size = 8
+                        config.mem = 128
+                    else:
+                        raise ValueError(f'Unknown dataset type: {dataset_type}')
+                
+                elif dataset_name == 'zebrafishstim':
+                    config.dataset.append('zebrafish_stim')
+                    dataset_config.exp_types = ['control']
+                    if dataset_type == 'pc':
+                        dataset_config.pc_dim = 512
+                    elif dataset_type == 'avg':
+                        dataset_config.brain_regions = 'average'
+                        dataset_config.pc_dim = None
+                    elif dataset_type == None:
+                        dataset_config.pc_dim = None
+                        dataset_config.test_set_window_stride = 32
+                        config.batch_size = 8
+                        config.mem = 128
+                    else:
+                        raise ValueError(f'Unknown dataset type: {dataset_type}')
+                
+                elif dataset_name == 'celegans':
+                    config.dataset.append('celegans')
+                    if dataset_type == 'pc':
+                        dataset_config.pc_dim = 100
+                    elif dataset_type == None:
+                        dataset_config.pc_dim = None
+                    else:
+                        raise ValueError(f'Unknown dataset type: {dataset_type}')
+                
+                elif dataset_name == 'mice':
+                    config.dataset.append('mice')
+                    if dataset_type == 'pc':
+                        dataset_config.pc_dim = 512
+                    elif dataset_type == None:
+                        dataset_config.pc_dim = None
+                    else:
+                        raise ValueError(f'Unknown dataset type: {dataset_type}')
+                
+                elif dataset_name == 'sim':
+                    config.dataset.append('simulation')
+                    dataset_config.n_neurons = int(label_prefix.split('_')[-1])
+                    dataset_type = label_prefix.split('_')[1] if len(label.split('_')) > 2 else None
+                    dataset_config.sampling_freq = 5
+                    config.mem = 128
+                    if dataset_type == 'pc':
+                        dataset_config.pc_dim = 512
+                    elif dataset_type == None:
+                        dataset_config.pc_dim = None
+                        dataset_config.batch_size = 16
+                    else:
+                        raise ValueError(f'Unknown dataset type: {dataset_type}')
+                    
+                else:
+                    raise ValueError(f'Unknown dataset label: {label}')
+
+                dataset_config.dataset = config.dataset[-1]
+                config.dataset_config[label] = dataset_config
+
+            config.mod_w = [1] * len(config.dataset)
 
     return configs
 
-def configure_models(configs: dict, customize=False):
+def configure_models(configs: dict):
+    """
+    Add model configurations to the NeuralPredictionConfig objects according to the model label
+    """
     for seed, config_list in configs.items():
         for config in config_list:
             config: NeuralPredictionConfig
-            config.shared_backbone = True
             label = config.model_label
+
+            model_type = label.split('_')[0]
+            sub_model_type = label.split('_')[1] if len(label.split('_')) > 1 else None
             
-            if label[:2] == 'AR':
+            if model_type in ['AR', 'MultiAR']:
                 config.loss_mode = 'autoregressive'
-                config.model_type = 'Autoregressive'
-                config.rnn_type = label[3:]
+                config.model_type = 'Autoregressive' if model_type == 'AR' else 'MultiAutoregressive'
+                config.rnn_type = sub_model_type
                 config.num_layers = 4 if config.rnn_type in ['S4', 'Transformer'] else 1
-            elif label[:6] == 'Latent':
+            elif model_type == 'Latent':
                 config.loss_mode = 'autoregressive'
                 config.model_type = 'LatentModel'
-                config.rnn_type = label[7:]
+                config.rnn_type = sub_model_type
                 if config.rnn_type == 'CTRNN':
                     config.rnn_type = 'CTRNNCell'
                 elif config.rnn_type[: 5] == 'LRRNN':
                     config.rnn_rank = int(config.rnn_type[6:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
-            elif label == 'TCN':
-                config.loss_mode = 'prediction'
-                config.model_type = 'TCN'
-                config.shared_backbone = config.pc_dim is not None
-            elif label.split('_')[0] in ['Linear', 'MLP', 'Transformer', 'POYO']:
+            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO']:
                 config.model_type = 'Decoder'
                 config.loss_mode = 'prediction'
-                config.decoder_type = label.split('_')[0]
-                config.encoder_dir = None
-                config.encoder_type = 'none'
+                config.decoder_type = model_type
+                config.tokenizer_dir = None
+                config.tokenizer_type = 'none'
+                config.separate_projs = False
 
-                if not customize:
-                    config.separate_projs = True
-                    if config.decoder_type == 'POYO' and config.poyo_output_mode != 'latent':
-                        config.separate_projs = False
-
-                if label[-5: ] == 'TOTEM':
+                if sub_model_type == 'TOTEM':
                     data_label = config.dataset_label
-                    config.encoder_type = 'vqvae'
-                    config.encoder_dir = \
+                    config.tokenizer_type = 'vqvae'
+                    config.tokenizer_dir = \
                         f'experiments/vqvae/model_dataset_label{data_label}_compression_factor{config.compression_factor}_s{seed}'
-                    config.encoder_state_dict_file = 'net_20000.pth'
-                elif label[-3: ] == 'cnn':
-                    config.encoder_type = 'cnn'
+                    config.tokenizer_state_dict_file = 'net_20000.pth'
+                elif sub_model_type == 'cnn':
+                    config.tokenizer_type = 'cnn'
                     config.kernel_size = 16
                     config.conv_channels = 128
-                elif label[-3: ] == 'pop':
+                elif sub_model_type == 'pop':
                     config.population_token = True
                     config.population_token_dim = 512
-
             else:
-                raise ValueError(f'Unknown model label: {label}')
+                config.loss_mode = 'prediction'
+                config.model_type = model_type
+                assert sub_model_type is None
 
     return configs
