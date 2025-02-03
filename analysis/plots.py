@@ -311,7 +311,7 @@ def grouped_plot(
     """
     A grouped (bar) plot
 
-    :param data_list: a list containing data for each atrribute, of size (num_bars, num_groups, (optional) num_seed)
+    :param data_list: a list of size (num_bars, num_groups, (optional) num_seed)
     :param group_labels: labels for each group, would be shown on x-axis
     :param bar_labels: labels for each bar, would be shown on legend
     :param bar_width: width of each bar, default is 1 / (num_bars + 1)

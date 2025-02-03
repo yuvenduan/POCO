@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from configs.config_global import FIG_DIR
+from configs.config_global import FIG_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS
 from utils.config_utils import configs_dict_unpack, configs_transpose
 from analysis import plots, analyze_performance, analyze_embedding
 from configs import experiments
@@ -42,8 +42,8 @@ def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=Non
 
     
     x_axis = np.arange((start + 1) * eval_interval, max_batch + 1, plot_every * eval_interval)
-    # print([len(x) for x in performance])
     if len(performance) == 0:
+        print("No data for", cfg.save_path, " Returning zeros")
         performance = np.zeros_like(x_axis).reshape(-1, 1)
     else:
         performance = np.stack(performance, axis=1)
@@ -51,69 +51,37 @@ def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=Non
     return performance, x_axis
 
 def get_performance(
-    cfgs, idx, 
-    key1='val_mse', key2='val_mse',
+    cfgs, idx, key='TestLoss',
     file_name='test.txt', 
-    beg=0,
 ):
     """
-    Look at the the step where key1 in minimal and return the corresponding key2 value, an example is to
-    look at the test accuracy when the training loss is minimal.
+    Read the test performance
     :return: a list of performance values for each seed
     """
 
     num_seeds = len(cfgs)
     performance = []
 
-    max_batch = cfgs[0][idx].max_batch
-    eval_interval = cfgs[0][idx].log_every
-    tot_steps = max_batch // eval_interval
-    check_complete = file_name == 'progress.txt' # only check training is complete for progress.txt
-
     for seed in range(num_seeds):
-        cfg = cfgs[seed][idx]
-
-        try:
-            file_path = osp.join(cfg.save_path, file_name)
-            exp_data = pd.read_table(file_path)
-
-            if check_complete and len(exp_data[key1]) < tot_steps:
-                raise ValueError(exp_data)
-
-            best_t = exp_data[key1][beg: ].argmin()
-            performance.append(exp_data[key2][best_t + beg])
-
-        except:
-            print("Incomplete data:", cfg.save_path)
+        cfg: NeuralPredictionConfig = cfgs[seed][idx]
+        file_path = osp.join(cfg.save_path, file_name)
+        if not osp.exists(file_path):
+            print(f"File {file_path} does not exist", flush=True)
+            continue
+        exp_data = pd.read_table(file_path)
+        performance.append(exp_data[key].iloc[-1])
 
     return performance
 
-def get_lr_curve(cfgs, idx, file_name='lr_info.pth'):
-
-    num_seeds = len(cfgs)
-    info = []
-
-    for seed in range(num_seeds):
-        cfg = cfgs[seed][idx]
-
-        try:
-            file_path = osp.join(cfg.save_path, file_name)
-            mean, std = torch.load(file_path)
-            info.append(np.array(mean))
-        except:
-            print("Incomplete data:", cfg.save_path)
-
-    info = np.stack(info, axis=1)
-    return info
-
 def compare_model_training_curves(
     cfgs, 
-    save_dir = 'autoregressive_rnns', 
-    mode_list = ['none', ], 
-    model_list = ['Transformer', 'S4', 'LSTM', 'RNN', ],
+    save_dir = None, 
+    mode_list = ['', ], 
+    model_list = ['POYO', 'Linear', ],
     plot_model_lists = None,
     plot_train_test_curve = False,
     show_test_performance = False,
+    datasets = None
 ):
     """
     Compare the train/test loss curves of different models, also save the train/val loss curves for each model
@@ -126,99 +94,111 @@ def compare_model_training_curves(
     :param plot_model_lists: If None, plot all models in model_list; 
         otherwise should be a dictionary of lists, each entry corresponds to a different plot, the key is the plot name
     :param plot_train_test_curve: whether to plot the train/test curves
+    :param show_test_performance: whether to show the test performance on the legend
+    :param datasets: a list of datasets to plot results, if None, use all datasets in the configuration
     """
     
     performance = []
 
     for i, mode in enumerate(mode_list):
-        val_baseline_performance = get_baseline_performance(cfgs[0][i * len(model_list)], 'val')['avg_copy_mse']
-        performance = []
-        train_performance = []
-        test_mse = []
-        test_mae = []
 
-        for k, model in enumerate(model_list):
-            test_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key='val_mse')
-            performance.append(test_curve)
-            train_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key='train_mse')
-            train_performance.append(train_curve)
+        cfg: NeuralPredictionConfig = cfgs[0][i * len(model_list)]
+        if datasets is None:
+            all_datasets = cfg.dataset_label
+        else:
+            all_datasets = datasets
 
-            if show_test_performance:
-                test_mse.append(get_performance(cfgs, k + i * len(model_list), key2='val_mse'))
-                test_mae.append(get_performance(cfgs, k + i * len(model_list), key2='val_mae'))
+        for dataset in all_datasets:
+            assert dataset in cfg.dataset_config, f"Dataset {dataset} not found in the configuration"
 
-            def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
-                plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+            val_baseline_performance = get_baseline_performance(cfg.dataset_config[dataset], 'val')['avg_copy_mse']
+            performance = []
+            train_performance = []
+            test_mse = []
+            test_mae = []
 
-            if plot_train_test_curve:
-                # compare train and test curves
+            for k, model in enumerate(model_list):
+                test_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key=f'{dataset}_val_mse')
+                performance.append(test_curve)
+                train_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key=f'{dataset}_train_mse')
+                train_performance.append(train_curve)
+
+                if show_test_performance:
+                    test_mse.append(get_performance(cfgs, k + i * len(model_list), key=f'{dataset}_val_mse'))
+                    test_mae.append(get_performance(cfgs, k + i * len(model_list), key=f'{dataset}_val_mae'))
+
+                def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
+                    plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+
+                if plot_train_test_curve:
+                    # compare train and test curves
+                    plots.error_plot(
+                        x_axis,
+                        [train_curve, test_curve],
+                        x_label='Training Step',
+                        y_label='Train Loss',
+                        label_list=['Train', 'Test'],
+                        save_dir=save_dir,
+                        fig_name=f'{dataset}_{mode}_{model}',
+                        figsize=(5, 4),
+                        mode='errorshade',
+                        extra_lines=draw_baseline
+                    )
+
+            if plot_model_lists is None:
+                plot_model_lists = {'All': None}
+            elif isinstance(plot_model_lists, list):
+                plot_model_lists = {'selected': plot_model_lists}
+            
+            for key, plot_model_list in plot_model_lists.items():
+                if plot_model_list is None:
+                    indices = list(range(len(model_list)))
+                else:
+                    indices = [model_list.index(model) for model in plot_model_list]
+                plot_performance = [performance[i] for i in indices]
+                plot_train_performance = [train_performance[i] for i in indices]
+                plot_model_list = [model_list[i] for i in indices]
+
+                colors = plots.get_model_colors(plot_model_list)
                 plots.error_plot(
                     x_axis,
-                    [train_curve, test_curve],
+                    plot_train_performance,
                     x_label='Training Step',
                     y_label='Train Loss',
-                    label_list=['Train', 'Test'],
+                    label_list=plot_model_list,
                     save_dir=save_dir,
-                    fig_name=f'{mode}_{model}',
-                    figsize=(5, 4),
+                    fig_name=f'{dataset}_{mode}_train_{key}',
+                    figsize=(4, 3),
                     mode='errorshade',
-                    extra_lines=draw_baseline
+                    colors=colors,
                 )
 
-        if plot_model_lists is None:
-            plot_model_lists = {'All': None}
-        elif isinstance(plot_model_lists, list):
-            plot_model_lists = {'selected': plot_model_lists}
-        
-        for key, plot_model_list in plot_model_lists.items():
-            if plot_model_list is None:
-                indices = list(range(len(model_list)))
-            else:
-                indices = [model_list.index(model) for model in plot_model_list]
-            plot_performance = [performance[i] for i in indices]
-            plot_train_performance = [train_performance[i] for i in indices]
-            plot_model_list = [model_list[i] for i in indices]
+                if show_test_performance:
+                    # attach the mean +- std of the test performance to the label string
+                    labels = []
+                    for i, label in zip(indices, plot_model_list):
+                        mean_mse = np.mean(test_mse[i])
+                        std_mse = np.std(test_mse[i])
+                        mean_mae = np.mean(test_mae[i])
+                        std_mae = np.std(test_mae[i])
+                        labels.append(f'{label} (MSE: {mean_mse:.3f} ± {std_mse:.3f})')
+                    plot_model_list = labels
 
-            colors = plots.get_model_colors(plot_model_list)
-            plots.error_plot(
-                x_axis,
-                plot_train_performance,
-                x_label='Training Step',
-                y_label='Train Loss',
-                label_list=plot_model_list,
-                save_dir=save_dir,
-                fig_name=f'{mode}_train_{key}',
-                figsize=(4, 3),
-                mode='errorshade',
-                colors=colors,
-            )
-
-            if show_test_performance:
-                # attach the mean +- std of the test performance to the label string
-                labels = []
-                for i, label in zip(indices, plot_model_list):
-                    mean_mse = np.mean(test_mse[i])
-                    std_mse = np.std(test_mse[i])
-                    mean_mae = np.mean(test_mae[i])
-                    std_mae = np.std(test_mae[i])
-                    labels.append(f'{label} (MSE: {mean_mse:.3f} ± {std_mse:.3f}, MAE: {mean_mae:.3f} ± {std_mae:.3f})')
-                plot_model_list = labels
-
-            plots.error_plot(
-                x_axis,
-                plot_performance,
-                x_label='Training Step',
-                y_label='Validation Loss',
-                label_list=plot_model_list,
-                save_dir=save_dir,
-                fig_name=f'{mode}_val_{key}',
-                figsize=(6 + show_test_performance * 4, 3),
-                mode='errorshade',
-                extra_lines=draw_baseline,
-                legend_bbox_to_anchor=(1.05, 0), # move the legend to the right
-                legend_loc='lower left',
-                colors=colors,
-            )
+                plots.error_plot(
+                    x_axis,
+                    plot_performance,
+                    x_label='Training Step',
+                    y_label='Validation Loss',
+                    label_list=plot_model_list,
+                    save_dir=save_dir,
+                    fig_name=f'{dataset}_{mode}_val_{key}',
+                    figsize=(6 + show_test_performance * 4, 3),
+                    mode='errorshade',
+                    extra_lines=draw_baseline,
+                    legend_bbox_to_anchor=(1.05, 0), # move the legend to the right
+                    legend_loc='lower left',
+                    colors=colors,
+                )
 
 def compare_param_analysis(
     cfgs, param_list, 
@@ -233,6 +213,7 @@ def compare_param_analysis(
     key_name=None
 ):
     """
+    **Need to update
     For each model, plot the best test loss vs. the parameter
 
     :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
@@ -287,254 +268,140 @@ def compare_param_analysis(
             colors=colors,
         )
 
-def test_analysis():
-    cfgs = experiments.test()
-    compare_model_training_curves(
-        cfgs, 'autoregressive_rnns_test',
-        model_list=['S4', 'LSTM', ],
-    )
-
-def sim_compare_noise_analysis():
-    cfgs = experiments.sim_compare_noise()
-    param_list = [0, 0.01, 0.03, 0.05, 0.1, 0.2, ]
-    compare_param_analysis(cfgs, param_list, param_name='noise')
-
-def sim_compare_ga_analysis():
-    cfgs = experiments.sim_compare_ga()
-    param_list = [1.4, 1.6, 1.8, 2.0, 2.2, ]
-    compare_param_analysis(cfgs, param_list, param_name='ga')
-
-def sim_partial_obervable_analysis():
-    cfgs = experiments.sim_partial_obervable()
-    param_list = [1, 0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0.02, 0.01]
-    compare_param_analysis(cfgs, param_list, param_name='portion_observed')
-
-def sim_compare_sparsity_analysis():
-    cfgs = experiments.sim_compare_sparsity()
-    param_list = [0.005, 0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1, ]
-    log_param_list = np.log(param_list)
-    compare_param_analysis(cfgs, log_param_list, param_name='log(sparsity)')
-
-def sim_compare_train_length_analysis():
-    cfgs = experiments.compare_train_length_sim()
-    n_neurons = [64, 128, 256, 512, 768, 1024, 1536, ]
-    train_lengths = [256, 512, 1024, 2048, 4096, 16384, 32768, 65536, ]
-    model_list = ['Linear', 'Latent_PLRNN', 'POYO']
-    mean_performance = {key: [] for key in model_list}
-    baseline_performances = [
-        get_baseline_performance(cfgs[0][i * len(model_list) * len(train_lengths)], 'test')['avg_copy_mse'] 
-            for i in range(len(n_neurons))]
-    colors = plots.get_model_colors(model_list)
+def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, key='val_score', weighted=False, dataset=None):
+    """
+    Get the weighted average performance from multiple experiments (weighted by the size of test set, or just average)
     
-    for i, n in enumerate(n_neurons):
-        loss_lists = []
-        for j, model in enumerate(model_list):
-            loss_list = []
-            mean_loss_list = []
-            for k, length in enumerate(train_lengths):
-                idx = (i * len(model_list) + j) * len(train_lengths) + k
-                loss = get_performance(cfgs, idx)
-                mean_loss_list.append(np.mean(loss))
-                loss_list.append(loss)
-            
-            loss_lists.append(loss_list)
-            mean_performance[model].append(mean_loss_list)
+    :param cfgs: a dictionary of lists, each key corresponds to a seed, each list has length n_models * n_exps
+    :param n_models: the number of models to compare
+    :param n_exps: the number of experiments
+    :param exp_list: a list of experiments to take the weighted average, each element in the list is a integer in [0, n_exps)
 
-        def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
-            plt.plot(x_axis, [baseline_performances[i]] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+    :return: a list of length n_models: weighted performances
+    """
+    performances = []
 
-        plots.error_plot(
-            np.log2(train_lengths),
-            loss_lists,
-            label_list=model_list,
-            x_label='log(Training Recording Length)',
-            y_label='Prediction Loss',
-            save_dir='sim_compare_train_length',
-            fig_name=f'{n}',
-            ylim=(0, None),
-            figsize=(5, 4),
-            mode='errorshade',
-            extra_lines=draw_baseline,
-            colors=colors,
-        )
+    for i in range(n_models):
 
-    threshold = 0.5
-    curves = []
+        total = [0 for _ in range(len(cfgs))]
+        sum_pred_num = 0
+        valid_seeds = len(cfgs)
 
-    for model in model_list:
-        min_lengths = []
-        for i, n in enumerate(n_neurons):
-            # find the first length that is below the threshold
-            min_length = 131072
-            for j, length in enumerate(train_lengths):
-                if mean_performance[model][i][j] < baseline_performances[i] * threshold:
-                    min_length = length
-                    break
-            min_lengths.append(min_length)
+        for j in exp_list:
+            idx = i * n_exps + j
+            if transpose:
+                idx = j * n_models + i
 
-        curves.append(min_lengths)
+            if dataset is None:
+                dataset_name = cfgs[0][idx].dataset_label[0]
+            else:
+                dataset_name = dataset
+            performance = get_performance(cfgs, idx, key=f'{dataset_name}_{key}')
 
-    def draw_fit(plt, x_axis, linewidth, capsize, capthick):
-        # draw y = 2x - 6 for x in [7, 10.5]
-        x_axis = np.linspace(7, 10.5, 100)
-        plt.plot(x_axis, [2 * x - 5.1 for x in x_axis], color='gray', linestyle='--', linewidth=linewidth, label='y = 2x - 5')
+            if weighted:
+                pred_num = get_performance(cfgs, idx, key=f'{dataset_name}_pred_num')
+            else:
+                pred_num = [1 for _ in range(len(performance))]
 
-    # for each model, plot the minimum length that reaches the threshold vs. the number of neurons
-    plots.error_plot(
-        np.log2(n_neurons),
-        [np.log2(curve) for curve in curves],
-        label_list=model_list,
-        errormode='none',
-        x_label='log(Number of Neurons)',
-        y_label='log(Length of Training Data)',
-        save_dir='sim_compare_train_length',
-        fig_name=f'datalength_vs_neurons',
-        figsize=(5, 4),
-        mode='errorshade',
-        extra_lines=draw_fit,
-        colors=colors,
-    )
+            valid_seeds = min(valid_seeds, len(performance))
+            for k in range(valid_seeds):
+                total[k] += performance[k] * pred_num[k]
 
-def conv_encoder_analysis():
-    cfgs = experiments.conv_encoder_test()
+            assert pred_num[-1] == pred_num[0], "Different number of predictions (test data size) for different seeds, is this expected?"
+            sum_pred_num += pred_num[0]
+
+        total = [x / sum_pred_num for x in total]
+        performances.append(total[: valid_seeds])
+
+    return performances
+
+def compare_models_multi_session_analysis():
+    cfgs = experiments.compare_models_multi_session()
     compare_model_training_curves(
-        cfgs, 'conv_encoder_test',
-        mode_list=['spontaneous', 'spontaneous_pc',  ],
-        model_list=[
-            'POYO_cnn_64_4', 'POYO_cnn_64_16', 'POYO_cnn_512_4', 'POYO_cnn_512_16', 
-            'Linear_cnn_64_4', 'Linear_cnn_64_16', 'Linear_cnn_512_4', 'Linear_cnn_512_16', ],
-    )
-
-def population_token_analysis():
-    cfgs = experiments.compare_population_token_dim()
-    compare_model_training_curves(
-        cfgs, 'population_token_dim',
-        mode_list=['4_128', '4_512', '16_128', '16_512'],
-        model_list=['Transformer', 'Linear', 'MLP', ],
-    )
-
-plot_lists = {
-    'AR': ['AR_Transformer', 'AR_S4', 'AR_RNN', 'AR_LSTM'],
-    'Latent': ['Latent_PLRNN', 'Latent_LRRNN_4', 'Latent_CTRNN'],
-    # 'TOTEM': ['Transformer_TOTEM', 'MLP_TOTEM', 'Linear_TOTEM', 'POYO_TOTEM'],
-    'Decoder': ['Transformer', 'MLP', 'Linear', 'POYO'],
-    'Selected': ['Linear', 'Transformer', 'POYO', 'AR_S4', 'Latent_CTRNN'],
-}
-
-def compare_models_fc_analysis():
-    cfgs = experiments.compare_models_fc()
-    model_list = experiments.model_list
-    compare_model_training_curves(
-        cfgs, 'compare_models_fc',
-        model_list=model_list[4: ],
-        mode_list=['spontaneous_fc', ],
-        plot_model_lists=plot_lists,
-        plot_train_test_curve=False
-    )
-
-def compare_models_pc_analysis():
-    cfgs = experiments.compare_models_pc()
-    model_list = experiments.model_list
-    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
-    compare_model_training_curves(
-        cfgs, 'compare_models', 
-        model_list=model_list,
-        mode_list=['spontaneous_pc', ],
-        plot_model_lists=plot_lists,
+        cfgs, 'compare_models_multi_session',
+        model_list=experiments.multi_session_model_list, 
+        mode_list=[''] * 5,
         plot_train_test_curve=False,
     )
 
-def compare_models_stim_analysis():
-    cfgs = experiments.compare_models_stim()
-    model_list = experiments.selected_model_list
-    plot_lists = {}
-    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
-    compare_model_training_curves(
-        cfgs, 'compare_models_stim',
-        model_list=model_list,
-        mode_list=['avg', 'pc', ],
-        plot_model_lists=plot_lists,
-        plot_train_test_curve=False
-    )
-
-def compare_models_celegans_analysis():
-    cfgs = experiments.compare_models_celegans()
-    model_list = experiments.selected_model_list
-    plot_lists = {}
-    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'POYO']
-    compare_model_training_curves(
-        cfgs, 'compare_models_celegans',
-        model_list=model_list, 
-        mode_list=['neurons', '100pc', ],
-        plot_model_lists=plot_lists,
-        plot_train_test_curve=False
-    )
-
-def compare_models_mice_analysis():
-    cfgs = experiments.compare_models_mice()
-    model_list = experiments.selected_model_list
-    plot_lists = {}
-    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'POYO']
-    compare_model_training_curves(
-        cfgs, 'compare_models_mice',
-        model_list=model_list, 
-        mode_list=['neurons', '512pc', ],
-        plot_model_lists=plot_lists,
-        plot_train_test_curve=False
-    )
-
-def virtual_stimulation_analysis():
-    cfgs = experiments.compare_models_stim()
-    from analysis.stim import virtual_stimulation
-    for seed in range(2):
-        for i, cfg in enumerate(cfgs[seed]):
-            if cfg.brain_regions == 'average':
-                virtual_stimulation(cfg)
-
 def compare_models_sim_analysis():
     cfgs = experiments.compare_models_sim()
-    model_list = experiments.model_list
-    plot_lists['Selected'] = ['Linear', 'Latent_PLRNN', 'AR_Transformer', 'TCN', 'POYO']
+    model_list = experiments.single_session_model_list
     compare_model_training_curves(
         cfgs, 'compare_models_sim', 
         model_list=model_list, 
-        mode_list=['sim256', 'sim1024', ],
-        plot_model_lists=plot_lists,
+        mode_list=['sim128', 'sim512', ],
         plot_train_test_curve=False
     )
 
-def compare_models_single_neuron_analysis():
-    cfgs = experiments.compare_models_single_neuron()
-    model_list = experiments.single_neuron_model_list
-    plot_lists = {'Selected': ['POYO', 'Linear',] }
+def compare_models_multi_species_analysis():
+    cfgs = experiments.compare_models_multi_species()
+    model_list = ['POYO', 'Linear', 'MultiAR_Transformer', ]
     compare_model_training_curves(
-        cfgs, 'compare_models_single_neuron', 
+        cfgs, 'compare_models_multi_species', 
         model_list=model_list, 
-        mode_list=['spontaneous', 'stim_control', ],
-        plot_model_lists=plot_lists,
         plot_train_test_curve=False
     )
 
-def compare_models_individual_region_analysis():
-    cfgs = experiments.compare_models_individual_region()
-    model_list = experiments.selected_model_list
+    cfgs = experiments.multi_species_test()
     compare_model_training_curves(
-        cfgs, 'compare_models_individual_region',
-        model_list=model_list, 
-        mode_list=['l_LHb', 'l_MHb', 'l_dthal', 'l_gc', 'l_raphe', 'l_vent', 'l_vthal', ],
-        # plot_model_lists=plot_lists,
-        plot_train_test_curve=False
+        cfgs, 'compare_models_multi_species_test',
+        model_list=['POYO', 'Linear',],
+        plot_train_test_curve=True
     )
 
-def compare_models_long_time_scale_analysis():
-    cfgs = experiments.compare_models_long_time_scale()
-    model_list = experiments.model_list
-    compare_model_training_curves(
-        cfgs, 'compare_models_longer_timescale', 
-        model_list=model_list, 
-        mode_list=['spontaneous_pc_2', 'spontaneous_pc_5', 'visual_2', 'visual_5', ],
-        plot_model_lists=plot_lists,
-        plot_train_test_curve=False
+def compare_models_analysis():
+    # compare single session models & multi session models
+    cfgs = experiments.compare_models_multi_session()
+    performances = {}
+    multi_session_model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', 'MS_AR_Transformer', ]
+    dataset_list = ['zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+
+    for i_data, dataset in enumerate(dataset_list):
+        performance_list = get_weighted_performance(
+            cfgs, len(multi_session_model_list), 
+            len(dataset_list), [i_data], transpose=True,
+        )
+        performances[dataset] = performance_list
+
+    cfgs = experiments.compare_models_celegans_single_session()
+    single_session_model_list = experiments.single_session_model_list
+    performances['celegans'] += get_weighted_performance(
+        cfgs, len(single_session_model_list), 
+        N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS), transpose=True
+    )
+    performances['celegans_pc'] += get_weighted_performance(
+        cfgs, len(single_session_model_list),
+        N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS, 2 * N_CELEGANS_SESSIONS), transpose=True
+    )
+
+    cfgs = experiments.compare_models_mice_single_session()
+    performances['mice'] += get_weighted_performance(
+        cfgs, len(single_session_model_list),
+        N_MICE_SESSIONS * 2, range(N_MICE_SESSIONS), transpose=True, 
+    )
+    performances['mice_pc'] += get_weighted_performance(
+        cfgs, len(single_session_model_list),
+        N_MICE_SESSIONS * 2, range(N_MICE_SESSIONS, 2 * N_MICE_SESSIONS), transpose=True,
+    )
+
+    cfgs = experiments.compare_models_zebrafish_pc_single_session()
+    performances['zebrafish_pc'] += get_weighted_performance(
+        cfgs, len(single_session_model_list),
+        N_ZEBRAFISH_SESSIONS, range(N_ZEBRAFISH_SESSIONS), transpose=True, 
+    )
+
+    # compare all models
+    all_models = multi_session_model_list + single_session_model_list
+    plot_datasets = ['zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(all_models))]
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=all_models, colors=plots.get_model_colors(all_models),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all',
+        fig_size=(15, 5), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8),
     )
 
 def compare_unit_dropout_analysis():
@@ -681,42 +548,6 @@ def poyo_ablations_analysis():
         mode_list=['spontaneous_pc', ]
     )
 
-def get_weighted_performance(cfgs, n_models, n_exps, exp_list, key='val_mse'):
-    """
-    Get the weighted average performance from multiple experiments (weighted by the size of test set)
-    
-    :param cfgs: a dictionary of lists, each key corresponds to a seed, each list has length n_models * n_exps
-    :param n_models: the number of models to compare
-    :param n_exps: the number of experiments
-    :param exp_list: a list of experiments to take the weighted average, each element in the list is a integer in [0, n_exps)
-
-    :return: a list of length n_models: weighted performances
-    """
-    performances = []
-
-    for i in range(n_models):
-
-        total = [0 for _ in range(len(cfgs))]
-        sum_pred_num = 0
-        valid_seeds = len(cfgs)
-
-        for j in exp_list:
-            idx = i * n_exps + j
-            performance = get_performance(cfgs, idx, key1=key, key2=key)
-            pred_num = get_performance(cfgs, idx, key1='val_pred_num', key2='val_pred_num')
-
-            valid_seeds = min(valid_seeds, len(performance))
-            for k in range(valid_seeds):
-                total[k] += performance[k] * pred_num[k]
-
-            assert pred_num[-1] == pred_num[0]
-            sum_pred_num += pred_num[0]
-
-        total = [x / sum_pred_num for x in total]
-        performances.append(total[: valid_seeds])
-
-    return performances
-
 def compare_num_animals_analysis():
     per_animal_cfgs = experiments.per_animal_pc()
     model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
@@ -745,35 +576,6 @@ def compare_num_animals_analysis():
         label_list=model_list,
         save_dir='compare_num_animals',
         fig_name='num_animals_vs_mse',
-        colors=colors,
-        figsize=(3.5, 3),
-        mode='errorshade',
-    )
-
-def compare_num_animals_single_neuron_analysis():
-    multi_animal_cfgs = experiments.multi_animal_single_neuron()
-    model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
-    colors = plots.get_model_colors(model_list)
-    split5_performance = get_weighted_performance(
-        multi_animal_cfgs, len(model_list), 8, range(5))
-    split2_performance = get_weighted_performance(
-        multi_animal_cfgs, len(model_list), 8, range(5, 7))
-    all_performance = get_weighted_performance(
-        multi_animal_cfgs, len(model_list), 8, range(7, 8))
-    
-    curves = []
-    for i, model in enumerate(model_list):
-        curves.append([split5_performance[i], split2_performance[i], all_performance[i]])
-    
-    plots.error_plot(
-        range(3), curves,
-        x_label='Number of Splits',
-        y_label='Mean Validation MSE',
-        xticks=range(3),
-        xticks_labels=['5', '2', '1'],
-        label_list=model_list,
-        save_dir='compare_num_animals',
-        fig_name='celgans_num_animals_vs_mse',
         colors=colors,
         figsize=(3.5, 3),
         mode='errorshade',

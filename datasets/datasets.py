@@ -361,7 +361,8 @@ class Zebrafish(NeuralDataset):
 
         for exp_type in config.exp_types:
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
-                if config.session_ids != None and n_sessions not in config.session_ids:
+                n_sessions += 1
+                if config.session_ids != None and n_sessions - 1 not in config.session_ids:
                     continue
                 if config.animal_ids != None and i_exp not in config.animal_ids:
                     continue
@@ -370,7 +371,7 @@ class Zebrafish(NeuralDataset):
                 all_activity = self.get_activity(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
-                n_sessions += 1
+
         return all_activities
     
 class StimZebrafish(Zebrafish):
@@ -387,7 +388,8 @@ class StimZebrafish(Zebrafish):
 
         for exp_type in config.exp_types:
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
-                if config.session_ids != None and n_sessions not in config.session_ids:
+                n_sessions += 1
+                if config.session_ids != None and n_sessions - 1 not in config.session_ids:
                     continue
                 if config.animal_ids != None and i_exp not in config.animal_ids:
                     continue
@@ -434,17 +436,17 @@ class Mice(Celegans):
         n_sessions = 0
 
         for idx, (mouse, sessions) in enumerate(all_sessions.items()):
-            if config.session_ids != None and n_sessions not in config.session_ids:
-                continue
-            if config.animal_ids != None and idx not in config.animal_ids:
+            for session in sessions:
+                n_sessions += 1
+                if config.session_ids != None and n_sessions - 1 not in config.session_ids:
+                    continue
+                if config.animal_ids != None and idx not in config.animal_ids:
                     continue
 
-            for session in sessions:
                 filename = os.path.join(MICE_PROCESSED_DIR, f'{mouse}_{session}.npz')
                 activity = self.get_activity(filename, config)
                 activity = self.downsample(activity)
                 all_activities.append(activity)
-                n_sessions += 1
         return all_activities
 
 class Simulation(NeuralDataset):
@@ -504,7 +506,7 @@ def get_baseline_performance(config: DatasetConfig, phase='train'):
         dataset = Zebrafish(config, phase=phase)
     elif config.dataset == 'simulation':
         dataset = Simulation(config, phase=phase)
-    elif config.dataset == 'zebrafish_stim':
+    elif config.dataset == 'zebrafish':
         dataset = StimZebrafish(config, phase=phase)
     elif config.dataset == 'celegans':
         dataset = Celegans(config, phase=phase)

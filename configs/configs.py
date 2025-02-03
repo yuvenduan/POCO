@@ -159,6 +159,8 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.mu_std_loss_coef = 0
         self.mu_std_module_mode = 'combined' # original mean / std; learned mean / std
         self.mu_std_separate_projs = False
+
+        # poyo config
         self.poyo_num_latents = 8
         self.poyo_query_mode = 'single' # or 'multi'
         self.poyo_output_mode = 'query' # or 'latent'

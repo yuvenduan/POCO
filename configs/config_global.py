@@ -19,6 +19,10 @@ CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans')
 MICE_RAW_DIR = os.path.join(DATA_DIR, 'raw_mice')
 MICE_BRAIN_AREAS = ['PPC', 'RSP', 'V1', 'M2']
 
+N_ZEBRAFISH_SESSIONS = 19
+N_CELEGANS_SESSIONS = 5
+N_MICE_SESSIONS = 12
+
 RAW_DATA_SUFFIX = '_CNMF_compressed.h5'
 PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zscored')
 VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual_zscored')
@@ -32,4 +36,9 @@ USE_CUDA = torch.cuda.is_available()
 DEVICE = torch.device("cuda" if USE_CUDA else "cpu")
 MAP_LOC = "cuda:0" if USE_CUDA else torch.device('cpu')
 LOG_LEVEL = logging.INFO
-MODEL_COLORS = {'Linear': '#003D5B', 'POYO': '#EDAE49', 'Predict-POYO': '#EDAE49', 'Latent_PLRNN': '#D1495B', 'AR_Transformer': '#00798C', 'TCN': '#ADD8E6', }
+BASE_MODEL_COLORS = {'Linear': '#003D5B', 'POYO': '#EDAE49', 'Predict-POYO': '#EDAE49', 'Latent_PLRNN': '#D1495B', 'AR_Transformer': '#00798C', 'TCN': '#ADD8E6', }
+MODEL_COLORS = {}
+
+for model in BASE_MODEL_COLORS:
+    MODEL_COLORS['MS_' + model] = BASE_MODEL_COLORS[model]
+    MODEL_COLORS[model] = BASE_MODEL_COLORS[model] + '66'
