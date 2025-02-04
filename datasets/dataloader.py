@@ -38,10 +38,13 @@ class DatasetIters(object):
 
         self.data_loaders = []
         self.input_sizes = []
+        self.unit_types = []
+
         for dataset, label in zip(dataset_list, config.dataset_label):
-            data_loader, input_size = init_single_dataset(dataset, phase, config.dataset_config[label])
+            data_loader, input_size, unit_type = init_single_dataset(dataset, phase, config.dataset_config[label])
             self.data_loaders.append(data_loader)
             self.input_sizes.append(input_size)
+            self.unit_types.append(unit_type)
 
         self.reset()
 
@@ -82,7 +85,8 @@ def init_single_dataset(dataset_name: str, phase: str, config: DatasetConfig):
 
     collate_f = dataset.collate_fn
     input_size = dataset.input_size
+    unit_types = dataset.unit_types
     data_loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=train_flag,
                              num_workers=config.num_workers, collate_fn=collate_f)
 
-    return data_loader, input_size
+    return data_loader, input_size, unit_types

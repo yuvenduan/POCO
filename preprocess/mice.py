@@ -7,6 +7,7 @@ from scipy import signal
 from scipy.io import loadmat
 from configs.config_global import MICE_RAW_DIR, MICE_BRAIN_AREAS, MICE_PROCESSED_DIR
 from preprocess.preprocess import process_data_matrix
+from preprocess.celegans import preprocess_data
 from utils.data_utils import get_mice_sessions
 
 def mice_preprocess():
@@ -35,9 +36,10 @@ def mice_preprocess():
 
             all_activity = np.concatenate(all_activity, axis=0)
             all_activity_df = np.concatenate(all_activity_df, axis=0)
+            all_activity_df = preprocess_data(all_activity_df.T, 5.36)[1].T
             area_ids = np.concatenate(area_ids, axis=0)
 
-            data_dict = process_data_matrix(all_activity_df, 'preprocess/mice', pc_dim=512, exp_name=f'{mouse}_{session}')
+            data_dict = process_data_matrix(all_activity_df, 'preprocess/mice', pc_dim=512, exp_name=f'{mouse}_{session}', normalize_mode='none')
             os.makedirs(MICE_PROCESSED_DIR, exist_ok=True)
             data_dict['area_ids'] = area_ids
             np.savez(osp.join(MICE_PROCESSED_DIR, f'{mouse}_{session}.npz'), **data_dict)

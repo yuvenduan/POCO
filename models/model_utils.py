@@ -69,22 +69,28 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
         )
         assert kwargs.get('num_layers', 1) == 1
     elif rnn_type == 'S4':
-        rnn = models.s4.S4(hidden_size, num_layers=num_layers, **kwargs)
+        rnn = models.layers.s4.S4(hidden_size, num_layers=num_layers, **kwargs)
     else:
         raise NotImplementedError('RNN not implemented')
     return rnn
 
 def get_pretrained_model(model_path, config_path, datum_size=None, eval_mode=True):
     config = load_config(config_path)
-    model = model_init(config, datum_size)
+    model: nn.Module = model_init(config, datum_size)
     model.load_state_dict(torch.load(model_path, weights_only=True))
     if eval_mode:
         model.eval()
         model.requires_grad_(False)
     return model
 
-def model_init(config: BaseConfig, datum_size):
-    model = eval("multi_session_models." + config.model_type)(config, datum_size)
+def model_init(config: BaseConfig, datum_size, unit_type=None):
+    model_class = eval("multi_session_models." + config.model_type)
+
+    if config.model_type == 'Decoder': # only Decoder might use unit_type infomation
+        model = model_class(config, datum_size, unit_type)
+    else:
+        model = model_class(config, datum_size)
+
     if config.load_path is not None:
         model.load_state_dict(torch.load(config.load_path))
         

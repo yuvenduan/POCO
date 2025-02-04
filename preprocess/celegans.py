@@ -118,7 +118,7 @@ flat_partial = lambda x: x.reshape(x.shape[0],-1)
 
 def bandpass(traces, f_l, f_h, sampling_freq):
     """
-    Apply a bandpass filter to the input traces.
+    Apply a bandpass filter to the input traces. Note: the input f_l and f_h are angular frequencies. 
 
     Parameters:
         traces (np.ndarray): Input traces to be filtered.
@@ -146,14 +146,14 @@ def preprocess_data(X, fps):
     """Preprocess the input data by applying bandpass filtering.
     
     Args:
-        X: Input data.
+        X: Input data of shape T * n_neurons.
         fps (float): Frames per second.
     
     Returns:
         numpy.ndarray: Preprocessed data after bandpass filtering.
     """
     time = 1 / fps * np.arange(0, X.shape[0])
-    filtered = bandpass(X.T, f_l=1e-10, f_h=0.05, sampling_freq=fps).T
+    filtered = bandpass(X.T, f_l=1e-10, f_h=0.2, sampling_freq=fps).T
 
     return time, filtered
 
@@ -163,13 +163,13 @@ def celegans_preprocess():
         
         db = Database(data_set_no)
         traces = db.neuron_traces
-        time, filtered = preprocess_data(traces, float(db.fps))
+        time, filtered = preprocess_data(traces.T, float(db.fps))
+        filtered = filtered.T
 
         save_dict = {
             'time': time,
             'neuron_names': db.neuron_names
         }
-        print(filtered.dtype)
         
         ret = process_data_matrix(
             filtered, 

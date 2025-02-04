@@ -12,20 +12,26 @@ import os
 
 from tqdm import tqdm
 from configs.configs import DatasetConfig
-from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, MICE_PROCESSED_DIR
+from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, MICE_PROCESSED_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS
 from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
 
     def load_all_activities(self, config: DatasetConfig):
         """
-        Return:
-            a list containing neural activity for each session, each element is a N * T matrix
+        Return: (activity, unit_types)
+            activity: a list containing neural activity for each session, each element is a N * T matrix
+            unit_type: (optional) a list containing unit types for each session, each element is an array of N integers
+            unit type could be brain region, cell type, rank of pc etc.
         Should be implemented in the subclass
         """
         raise NotImplementedError
     
     def downsample(self, data: np.ndarray):
+        """
+        Downsample the data by the sampling frequency
+        data: N * T matrix
+        """
         if self.sampling_freq == 1:
             return data
         
@@ -43,7 +49,7 @@ class NeuralDataset(tud.Dataset):
 
         self.neural_data = []
         self.session_id = []
-        self.input_size = []
+        self.input_size = [] # used in init_single_dataset
         self.pred_length = config.pred_length
         self.normalize_coef = []
 
@@ -52,7 +58,8 @@ class NeuralDataset(tud.Dataset):
         self.sampling_mode = config.sampling_mode
         if isinstance(config.session_ids, int):
             config.session_ids = [config.session_ids]
-        all_activities = self.load_all_activities(config)
+        all_activities, unit_types = self.load_all_activities(config)
+        self.unit_types = unit_types # used in init_single_dataset
 
         logging.info(f"Raw Activity Shape: {[activity.shape for activity in all_activities]}")
 
@@ -314,49 +321,66 @@ class Zebrafish(NeuralDataset):
         'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
     ]
 
-    def get_activity(self, filename, config: DatasetConfig):
+    def get_activity_unit_id(self, filename, config: DatasetConfig):
         """
         Load the neural activity from the file
         Based on the config, return the activity of specific brain regions, the average activity of all brain regions, or principal components of whole-brain activity
         """
+        unit_id = None
+
         with np.load(filename) as fishdata:
             if config.pc_dim is None and config.fc_dim is None:
                 roi_indices = [fishdata[region] for region in self.all_regions]
                 
                 if config.brain_regions == 'all':
                     # use all brain regions
-                    all_activity: np.ndarray = fishdata['M']
+                    activity: np.ndarray = fishdata['M']
+                    unit_id = np.zeros((activity.shape[0], ))
+                    for id, region in enumerate(self.all_regions):
+                        unit_id[roi_indices[id]] = id + 1
+
                 elif config.brain_regions == 'average':
                     # use average activity of all brain regions
-                    all_activity = np.empty((len(self.all_regions), fishdata['M'].shape[1]))
+                    activity = np.empty((len(self.all_regions), fishdata['M'].shape[1]))
                     for i, roi_index in enumerate(roi_indices):
                         if np.sum(roi_index) == 0:
-                            all_activity[i] = np.zeros((fishdata['M'].shape[1], ))
+                            activity[i] = np.zeros((fishdata['M'].shape[1], ))
                         else:
-                            all_activity[i] = fishdata['M'][roi_index].mean(axis=0)
+                            activity[i] = fishdata['M'][roi_index].mean(axis=0)
                     assert config.normalize_mode == 'zscore', 'Recommend using zscore normalization when using averaged activity'
                 else:
                     # use specific brain regions
                     if not isinstance(config.brain_regions, (list, tuple)):
                         config.brain_regions = [config.brain_regions]
+                    
                     use_indices = np.zeros_like(roi_indices[0])
-                    for region in config.brain_regions:
+                    unit_ids = np.zeros_like(roi_indices[0])
+
+                    for id, region in enumerate(config.brain_regions):
                         region = 'in_' + region
                         assert region in self.all_regions, f'Invalid brain region {region}'
                         use_indices |= roi_indices[self.all_regions.index(region)]
-                    all_activity: np.ndarray = fishdata['M'][use_indices]
+                        unit_ids[roi_indices[self.all_regions.index(region)]] = id + 1
+
+                    activity: np.ndarray = fishdata['M'][use_indices]
+                    unit_id = unit_ids[use_indices]
+
             elif config.fc_dim is not None:
                 assert config.brain_regions == 'all', 'Only support using all brain regions when using FC'
-                all_activity: np.ndarray = fishdata[f'FC_{config.fc_dim}']
+                activity: np.ndarray = fishdata[f'FC_{config.fc_dim}']
             else:
                 assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
-                all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
+                activity: np.ndarray = fishdata['PC'][: config.pc_dim]
+
+        if unit_id is None:
+            unit_id = np.arange(activity.shape[0])
         
-        return all_activity
+        return activity, unit_id.astype(int)
 
     def load_all_activities(self, config: DatasetConfig):
         exp_names = get_exp_names()
         all_activities = []
+        all_unit_types = []
         n_sessions = 0
 
         for exp_type in config.exp_types:
@@ -368,11 +392,12 @@ class Zebrafish(NeuralDataset):
                     continue
 
                 filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
-                all_activity = self.get_activity(filename, config)
+                all_activity, unit_type = self.get_activity_unit_id(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
+                all_unit_types.append(unit_type)
 
-        return all_activities
+        return all_activities, all_unit_types
     
 class StimZebrafish(Zebrafish):
 
@@ -384,6 +409,7 @@ class StimZebrafish(Zebrafish):
     def load_all_activities(self, config: DatasetConfig):
         exp_names = get_stim_exp_names()
         all_activities = []
+        all_unit_types = []
         n_sessions = 0
 
         for exp_type in config.exp_types:
@@ -395,43 +421,80 @@ class StimZebrafish(Zebrafish):
                     continue
 
                 filename = os.path.join(STIM_PROCESSED_DIR, exp_name + '.npz')
-                all_activity = self.get_activity(filename, config)
+                all_activity, unit_type = self.get_activity_unit_id(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
-        return all_activities
+                all_unit_types.append(unit_type)
+
+        return all_activities, all_unit_types
     
 class Celegans(NeuralDataset):
 
-    def get_activity(self, filename, config: DatasetConfig):
+    def get_activity_unit_id(self, filename, config: DatasetConfig):
         """
         Load the neural activity from the file
         """
-        with np.load(filename) as fishdata:
+        with np.load(filename) as data:
             assert config.fc_dim is None, 'Only support using PC for C. elegans data'
             if config.pc_dim is None:
-                all_activity: np.ndarray = fishdata['M']
+                activity: np.ndarray = data['M']
+                unit_type = np.zeros((activity.shape[0], ))
+                for i, name in enumerate(data['neuron_names']):
+                    if name in self.all_neuron_names:
+                        unit_type[i] = self.all_neuron_names.index(name) + 1
             else:
                 assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
-                all_activity: np.ndarray = fishdata['PC'][: config.pc_dim]
-        return all_activity
-
-    def load_all_activities(self, config: DatasetConfig):
-        all_activity = []
-        for idx in range(5):
-            if config.session_ids != None and idx not in config.session_ids:
-                continue
-            if config.animal_ids != None and idx not in config.animal_ids:
-                    continue
-            filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{idx}.npz')
-            activity = self.get_activity(filename, config)
-            activity = self.downsample(activity)
-            all_activity.append(activity)
-        return all_activity
-    
-class Mice(Celegans):
+                activity: np.ndarray = data['PC'][: config.pc_dim]
+                unit_type = np.arange(activity.shape[0])
+        return activity, unit_type.astype(int)
 
     def load_all_activities(self, config: DatasetConfig):
         all_activities = []
+        all_unit_types = []
+
+        all_neuron_names = []
+        for i in range(N_CELEGANS_SESSIONS):
+            filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{i}.npz')
+            with np.load(filename) as data:
+                for name in data['neuron_names']:
+                    if name[0] >= 'A' and name[0] <= 'Z' and name not in all_neuron_names:
+                        all_neuron_names.append(name)
+        self.all_neuron_names = all_neuron_names
+
+        for idx in range(N_CELEGANS_SESSIONS):
+            if config.session_ids != None and idx not in config.session_ids:
+                continue
+            if config.animal_ids != None and idx not in config.animal_ids:
+                continue
+            filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{idx}.npz')
+
+            all_activity, unit_type = self.get_activity_unit_id(filename, config)
+            all_activity = self.downsample(all_activity)
+            all_activities.append(all_activity)
+            all_unit_types.append(unit_type)
+
+        return all_activities, all_unit_types
+    
+class Mice(Celegans):
+
+    def get_activity_unit_id(self, filename, config: DatasetConfig):
+        """
+        Load the neural activity from the file
+        """
+        with np.load(filename) as data:
+            assert config.fc_dim is None, 'Only support using PC for mice data'
+            if config.pc_dim is None:
+                activity: np.ndarray = data['M']
+                unit_type = data['area_ids']
+            else:
+                assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
+                activity: np.ndarray = data['PC'][: config.pc_dim]
+                unit_type = np.arange(activity.shape[0])
+        return activity, unit_type.astype(int)
+
+    def load_all_activities(self, config: DatasetConfig):
+        all_activities = []
+        all_unit_types = []
         all_sessions = get_mice_sessions()
         n_sessions = 0
 
@@ -444,31 +507,50 @@ class Mice(Celegans):
                     continue
 
                 filename = os.path.join(MICE_PROCESSED_DIR, f'{mouse}_{session}.npz')
-                activity = self.get_activity(filename, config)
+                activity, unit_type = self.get_activity_unit_id(filename, config)
                 activity = self.downsample(activity)
                 all_activities.append(activity)
-        return all_activities
+                all_unit_types.append(unit_type)
+        
+        return all_activities, all_unit_types
 
 class Simulation(NeuralDataset):
 
     def load_all_activities(self, config: DatasetConfig):
-        name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{config.sim_seed}'
-        if config.sparsity != 1:
-            name += f'_sparsity_{config.sparsity}'
-        filename = os.path.join(SIM_DIR, f'{name}.npz')
 
-        data = np.load(filename)
-        if config.pc_dim is None:
-            all_activity: np.ndarray = data['M']
-            n = all_activity.shape[0]
-            if config.portion_observable_neurons < 1:
-                n_observable = int(n * config.portion_observable_neurons)
-                all_activity = all_activity[: n_observable]
-        else:
-            all_activity: np.ndarray = data['PC'][: config.pc_dim]
+        all_activities = []
+        all_unit_types = []
+
+        for seed in range(4):
+            if config.session_ids != None and seed not in config.session_ids:
+                continue
+            if config.animal_ids != None and seed not in config.animal_ids:
+                continue
+
+            name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{seed}'
+            if config.sparsity != 1:
+                name += f'_sparsity_{config.sparsity}'
+            filename = os.path.join(SIM_DIR, f'{name}.npz')
+
+            data = np.load(filename)
+            if config.pc_dim is None:
+                activity: np.ndarray = data['M']
+                n = activity.shape[0]
+                if config.portion_observable_neurons < 1:
+                    n_observable = int(n * config.portion_observable_neurons)
+                    activity = activity[: n_observable]
+            else:
+                activity: np.ndarray = data['PC'][: config.pc_dim]
+            
+            activity = self.downsample(activity)
+            all_activities.append(activity)
+
+            if config.pc_dim is None:
+                all_unit_types.append(np.zeros((activity.shape[0], ), dtype=int))
+            else:
+                all_unit_types.append(np.arange(activity.shape[0], dtype=int))
         
-        all_activity = self.downsample(all_activity)
-        return [all_activity]
+        return all_activities, all_unit_types
 
 def get_baseline_performance(config: DatasetConfig, phase='train'):
     """
@@ -506,7 +588,7 @@ def get_baseline_performance(config: DatasetConfig, phase='train'):
         dataset = Zebrafish(config, phase=phase)
     elif config.dataset == 'simulation':
         dataset = Simulation(config, phase=phase)
-    elif config.dataset == 'zebrafish':
+    elif config.dataset == 'zebrafish_stim':
         dataset = StimZebrafish(config, phase=phase)
     elif config.dataset == 'celegans':
         dataset = Celegans(config, phase=phase)

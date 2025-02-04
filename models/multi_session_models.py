@@ -11,6 +11,7 @@ __all__ = [
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 import os
 import models.single_session_models as single_models
 import itertools
@@ -202,7 +203,7 @@ class Decoder(nn.Module):
           delete TOTEM, if it doesn't make a difference
     """
 
-    def __init__(self, config: NeuralPredictionConfig, input_size):
+    def __init__(self, config: NeuralPredictionConfig, input_size, unit_types):
         super().__init__()
 
         self.Tin = config.seq_length - config.pred_length
@@ -210,7 +211,10 @@ class Decoder(nn.Module):
         for i_dataset, size in enumerate(input_size):
             self.dataset_idx += [i_dataset] * len(size)
         self.num_datasets = len(input_size)
+        self.num_unit_types = [np.concatenate(unit_type).max() + 1 for unit_type in unit_types]
         input_size = list(itertools.chain(*input_size))
+        self.unit_types = list(itertools.chain(*unit_types))
+        self.unit_types = [torch.from_numpy(unit_type).to(DEVICE) for unit_type in self.unit_types]
 
         if config.tokenizer_type == 'vqvae':
             assert config.tokenizer_dir is not None, "Pre-trained tokenizer dir must be provided for vqvae"
@@ -269,7 +273,10 @@ class Decoder(nn.Module):
                 unit_dropout=config.poyo_unit_dropout,
                 output_latent=config.poyo_output_mode == 'latent',
                 t_max=config.rotary_attention_tmax,
-                num_datasets=self.num_datasets
+                num_datasets=self.num_datasets,
+                unit_embedding_components=config.unit_embedding_components,
+                latent_session_embedding=config.latent_session_embedding,
+                num_unit_types=self.num_unit_types,
             )
             if config.poyo_output_mode == 'latent':
                 self.embedding_dim = config.poyo_num_latents * config.decoder_hidden_size
@@ -329,10 +336,13 @@ class Decoder(nn.Module):
 
             input_seqlen = torch.cat([torch.full((b, ), d, device=x.device) 
                                             for b, d in zip(bsz, self.input_size)], dim=0)
-            session_index = torch.cat([torch.full((b, d), i, device=x.device).reshape(-1) 
-                                            for i, (b, d) in enumerate(zip(bsz, self.input_size))], dim=0)
-            dataset_index = torch.cat([torch.full((b, d), self.dataset_idx[i], device=x.device).reshape(-1)
-                                            for i, (b, d) in enumerate(zip(bsz, self.input_size))], dim=0)
+            session_index = torch.cat([torch.full((b, ), i, device=x.device) 
+                                            for i, b in enumerate(bsz)], dim=0)
+            dataset_index = torch.cat([torch.full((b, ), self.dataset_idx[i], device=x.device)
+                                            for i, b in enumerate(bsz)], dim=0)
+            unit_types = torch.cat([unit_type.repeat(b, 1).reshape(-1) 
+                                            for b, unit_type in zip(bsz, self.unit_types)], dim=0) # sum(B * D)
+
             embed = self.decoder(
                 out,
                 unit_indices=unit_indices,
@@ -340,6 +350,7 @@ class Decoder(nn.Module):
                 input_seqlen=input_seqlen,
                 session_index=session_index,
                 dataset_index=dataset_index,
+                unit_type=unit_types
             ) # sum(B * D), embedding_dim; or sum(B * D), pred_length, embedding_dim
 
             if embed.dim() == 3:

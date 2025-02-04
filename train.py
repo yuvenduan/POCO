@@ -133,10 +133,6 @@ def model_train(config: NeuralPredictionConfig):
     logger = Logger(output_dir=config.save_path,
                     exp_name=config.experiment_name)
 
-    # gradient clipping
-    if config.grad_clip is not None:
-        logging.info("Performs grad clipping with max norm " + str(config.grad_clip))
-
     # initialize dataset
     train_data = DatasetIters(config, 'train')
     assert config.perform_val
@@ -146,7 +142,9 @@ def model_train(config: NeuralPredictionConfig):
     # initialize task
     task_func: TaskFunction = task_init(config, train_data.input_sizes)
     task_func.mse_baseline['val'] = test_baseline_performance
-    net = model_init(config, train_data.input_sizes)
+
+    # initialize model
+    net = model_init(config, train_data.input_sizes, train_data.unit_types)
     
     # initialize optimizer
     if config.optimizer_type == 'Adam':
@@ -245,7 +243,7 @@ def model_eval(config: SupervisedLearningBaseConfig):
     test_data = DatasetIters(config, 'test')
     task_func: TaskFunction = task_init(config, test_data.input_sizes)
     task_func.mse_baseline['val'] = test_data.get_baselines()
-    net = model_init(config, test_data.input_sizes)
+    net = model_init(config, test_data.input_sizes, test_data.unit_types)
     net.load_state_dict(torch.load(osp.join(config.save_path, 'net_best.pth'), weights_only=True))
 
     logger = Logger(output_dir=config.save_path, output_fname='test.txt', exp_name=config.experiment_name)

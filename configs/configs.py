@@ -162,6 +162,8 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         # poyo config
         self.poyo_num_latents = 8
+        self.latent_session_embedding = False
+        self.unit_embedding_components = ['session', 'region', 'magnitude', ] # embeddings that will in added on top of unit embedding
         self.poyo_query_mode = 'single' # or 'multi'
         self.poyo_output_mode = 'query' # or 'latent'
         self.decoder_num_layers = 4
@@ -197,9 +199,8 @@ class DatasetConfig:
         # config for simulated data
         self.n_neurons = 512 # only used for simulated dataset: the number of neurons used for training
         self.n_regions = 1
-        self.ga = 1.8
+        self.ga = 2.0
         self.sim_noise_std = 0
-        self.sim_seed = 0
         self.portion_observable_neurons = 1 # only used for simulated dataset: the portion of neurons that are observable
         self.train_data_length = 1000000
         self.sparsity = 1

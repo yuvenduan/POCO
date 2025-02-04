@@ -5,7 +5,7 @@ import numpy as np
 
 from utils.curbd import threeRegionSim
 from configs.config_global import SIM_DIR
-from preprocess.preprocess import run_pca
+from preprocess.preprocess import process_data_matrix
 from sklearn.decomposition import PCA
 from analysis import plots
 
@@ -28,52 +28,25 @@ def run(
 
     frac_inter = 0 if mode == 1 else 0.05
     out = threeRegionSim(
-        number_units=n, dtData=0.01, tau=0.1, T=10, 
-        fig_save_name=name + '.pdf', leadTime=5, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
-    )
-    out = threeRegionSim(
         number_units=n, dtData=0.01, tau=0.1, T=T, 
-        fig_save_name=name + f'_long.pdf', leadTime=500, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
+        fig_save_name=name + f'_.pdf', leadTime=500, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
     )
 
     if mode == 1:
         R = out['Ra']
     elif mode == 3:
         R = np.concatenate([out['Ra'], out['Rb'], out['Rc']], axis=0)
-    data_dict = {'M': R, }
-
-    # plot cumulative explained variance for first 2048 PCs
-    pca = PCA(n_components=min(2048, n * mode), svd_solver='full')
-    # randomly select 10000 samples to fit PCA
-    fit_data = data_dict['M'].T[np.random.choice(data_dict['M'].shape[1], 5000, replace=False)]
-    pca.fit(fit_data)
-    act = pca.transform(data_dict['M'].T)
-    print('EV 10:', pca.explained_variance_ratio_[:10])
-    cumulated = np.cumsum(pca.explained_variance_ratio_)
-
-    plots.error_plot(
-        np.arange(1, len(cumulated) + 1),
-        [cumulated],
-        x_label='Number of PCs', y_label='Explained variance',
-        save_dir='sim',
-        fig_name=f'{name}_explained_variance',
-        errormode='none',
-        mode='errorshade',
-        yticks=[0, 1]
-    )
-
-    print("Reduced Data Shape: ", act.shape)
-    data_dict['PC'] = act.T
-    print(f"512-dim Explained variance: {cumulated[min(512, n * mode) - 1]}")
+    data_dict = process_data_matrix(R, 'preprocess/sim', pc_dim=128, exp_name=name, normalize_mode='zscore', plot_window=64 * 5)
 
     os.makedirs(SIM_DIR, exist_ok=True)
     np.savez(os.path.join(SIM_DIR, f'{name}.npz'), **data_dict)
 
 def save_sim_activity():
 
-    for n in [64, 128, 256, 384, 512, 1024, 1536, ]:
+    # for n in [64, 128, 256, 384, 512, 1024, 1536, ]:
+    for n in [128, 256, 512, ]:
         for seed in range(4):
-            run(mode=1, n=n, ga=1.8, noise_std=0, seed=seed)
+            run(mode=1, n=n, ga=2.0, noise_std=0, seed=seed)
     return
 
     os.makedirs(SIM_DIR, exist_ok=True)

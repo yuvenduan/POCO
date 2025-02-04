@@ -232,29 +232,29 @@ single_session_model_list = ['POYO', 'PaiFilter', 'Linear', 'DLinear', 'TCN', 'A
 multi_session_model_list = ['POYO', 'Linear', 'Latent_PLRNN', 'MultiAR_Transformer', ]
 single_neuron_model_list = ['POYO', 'Linear', 'DLinear']
 
-def compare_models_multi_species():
+def poyo_compare_embedding_mode():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'compare_models_multi_species'
-    config.dataset_label = ['zebrafish_pc', 'celegans', 'mice', ]
-    config.max_batch = 20000
+    config.experiment_name = 'poyo_compare_embedding_mode'
+    config.model_label = 'POYO'
 
     config_ranges = OrderedDict()
-    config_ranges['model_label'] = ['POYO', 'Linear', 'MultiAR_Transformer', ]
+    config_ranges['dataset_label'] = ['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ]
+    config_ranges['unit_embedding_components'] = [[], ['session'], ['session', 'unit_type'], ]
+    config_ranges['latent_session_embedding'] = [True, False, ]
+
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
     return configs
 
-def multi_species_test():
+def compare_models_multi_species():
     config = NeuralPredictionConfig()
-    config.experiment_name = 'multi_species_test'
+    config.experiment_name = 'compare_models_multi_species'
     config.dataset_label = [
         'zebrafish', 'celegans', 'mice', 
         'zebrafish_pc', 'celegans_pc', 'mice_pc',
     ]
-    config.max_batch = 50000
-    config.mem = 256
-
+    config.max_batch = 20000
     config_ranges = OrderedDict()
     config_ranges['model_label'] = ['POYO', 'Linear', ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
@@ -331,12 +331,25 @@ def compare_models_zebrafish_single_neuron():
     configs = configure_dataset(configs)
     return configs
 
+def compare_models_sim_multi_session():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_sim_multi_session'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = [f'sim_{n}' for n in [128, 512]]
+    config_ranges['model_label'] = multi_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
 def compare_models_sim():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_models_sim'
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['sim_128', 'sim_512', ]
+    config_ranges['dataset_label'] = [f'sim_{n}-{seed}' for n in [128, 512] for seed in range(4)]
     config_ranges['model_label'] = single_session_model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)

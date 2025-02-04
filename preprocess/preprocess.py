@@ -86,7 +86,8 @@ def process_data_matrix(
     n_clusers=[], 
     plot_max_min=False, 
     exp_name='',
-    pc_dim=2048
+    pc_dim=2048,
+    plot_window=64
 ):
     """
     Process the data matrix, also plot the distribution of min F and max F, and sample traces of first 10 PCs / 10 random neurons
@@ -159,13 +160,14 @@ def process_data_matrix(
         ax = plt.subplot(10, 2, i * 2 + 1)
         ax.plot(data_dict['PC'][i])
         ax.title.set_text(f'PC {i}, full trace')
-        # plot a random 64-step window
+        # plot a random plot_window-step window
         ax = plt.subplot(10, 2, i * 2 + 2)
-        t = np.random.randint(0, data_dict['PC'].shape[1] - 64)
-        ax.plot(data_dict['PC'][i, t: t + 64])
-        ax.title.set_text(f'PC {i}, 64-step window')
+        t = np.random.randint(0, data_dict['PC'].shape[1] - plot_window)
+        ax.plot(data_dict['PC'][i, t: t + plot_window])
+        ax.title.set_text(f'PC {i}, {plot_window}-step window')
     plt.tight_layout()
     plt.savefig(os.path.join(sub_fig_dir, f'{exp_name}_first_10_PCs.pdf'))
+    plt.close()
 
     # plot 10 random neurons
     plt.figure(figsize=(7, 10))
@@ -174,13 +176,14 @@ def process_data_matrix(
         ax = plt.subplot(10, 2, i * 2 + 1)
         ax.plot(normalized[idx])
         ax.title.set_text(f'Neuron {idx}, full trace')
-        # plot a random 64-step window
+        # plot a random plot_window-step window
         ax = plt.subplot(10, 2, i * 2 + 2)
-        t = np.random.randint(0, normalized.shape[1] - 64)
-        ax.plot(normalized[idx, t: t + 64])
-        ax.title.set_text(f'Neuron {idx}, 64-step window')
+        t = np.random.randint(0, normalized.shape[1] - plot_window)
+        ax.plot(normalized[idx, t: t + plot_window])
+        ax.title.set_text(f'Neuron {idx}, {plot_window}-step window')
     plt.tight_layout()
     plt.savefig(os.path.join(sub_fig_dir, f'{exp_name}_10_random_neurons.pdf'))
+    plt.close()
 
     for n_cluster in n_clusers:
         data_dict[f'FC_{n_cluster}'] = get_clustered_data(normalized, n_cluster)

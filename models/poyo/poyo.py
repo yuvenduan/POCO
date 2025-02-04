@@ -34,6 +34,9 @@ class POYO(nn.Module):
         output_latent=False, # if True, return the latent representation, else return the query representation
         t_max=100,
         num_datasets=1,
+        unit_embedding_components=['session', ],
+        latent_session_embedding=False,
+        num_unit_types=None,
     ):
         super().__init__()
 
@@ -42,6 +45,12 @@ class POYO(nn.Module):
         self.session_emb = Embedding(len(input_size), dim, init_scale=emb_init_scale)
         self.latent_emb = Embedding(num_latents, dim, init_scale=emb_init_scale)
         self.dataset_emb = Embedding(num_datasets, dim, init_scale=emb_init_scale)
+
+        if num_unit_types is not None:
+            self.unit_type_emb = nn.ModuleList([
+                Embedding(num_unit_type, dim, init_scale=emb_init_scale) 
+            for num_unit_type in num_unit_types])
+
         self.num_latents = num_latents
         self.query_length = query_length
         self.unit_dropout = unit_dropout
@@ -63,6 +72,8 @@ class POYO(nn.Module):
         self.T_step = T_step
         self.using_memory_efficient_attn = self.perceiver_io.using_memory_efficient_attn
         self.output_latent = output_latent
+        self.unit_embedding_components = unit_embedding_components
+        self.latent_session_embedding = latent_session_embedding
 
     def forward(
         self,
@@ -72,15 +83,27 @@ class POYO(nn.Module):
         unit_timestamps, # sum(B * D), L
         input_seqlen, # (B, )
         # output sequence
-        session_index,  # sum(B * D)
-        dataset_index, # sum(B * D)
+        session_index,  # (B, )
+        dataset_index, # (B, )
+        unit_type, # sum(B * D)
     ):
 
         # input
         L = x.shape[1]
         B = input_seqlen.shape[0]
         T = L * self.T_step
-        unit_embedding = self.unit_emb(unit_indices) + self.session_emb(session_index) + self.dataset_emb(dataset_index) # sum(B * D), dim
+        unit_embedding = self.unit_emb(unit_indices)
+
+        session_indices = torch.concatenate([torch.full((input_seqlen[i], ), session_index[i], device=x.device) for i in range(B)]) # sum(B * D)
+        dataset_indices = torch.concatenate([torch.full((input_seqlen[i], ), dataset_index[i], device=x.device) for i in range(B)]) # sum(B * D)
+
+        if 'session' in self.unit_embedding_components:
+            unit_embedding = unit_embedding + self.session_emb(session_indices) + self.dataset_emb(dataset_indices) # sum(B * D), dim
+        if 'unit_type' in self.unit_embedding_components: 
+            dataset_id = dataset_index[0]
+            assert torch.all(dataset_index == dataset_id), 'currently, embedding for unit_type is only supported when each batch contains only one dataset'
+            unit_embedding = unit_embedding + self.unit_type_emb[dataset_id](unit_type)
+
         inputs = unit_embedding.unsqueeze(1) + self.input_proj(x) # sum(B * D), L, dim
 
         if self.training and self.unit_dropout > 0.0 and np.random.rand() < 0.8:
@@ -103,14 +126,15 @@ class POYO(nn.Module):
         latent_index = torch.arange(self.num_latents, device=x.device)
         latents = self.latent_emb(latent_index)
         latents = latents.repeat(B, 1, 1) # B, N_latent, dim
+        if self.latent_session_embedding:
+            latents = latents + self.session_emb(session_index).unsqueeze(1) + self.dataset_emb(dataset_index).unsqueeze(1) # B, N_latent, dim
         latents = latents.reshape(-1, latents.shape[2])
         latent_seqlen = torch.full((B, ), self.num_latents, device=x.device)
         latent_timestamps = torch.arange(0, T, step=T // self.num_latents, device=x.device)
         latent_timestamps = latent_timestamps.repeat(B) # B * N_latent
 
         # outputs
-        output_queries = self.session_emb(session_index) + self.dataset_emb(dataset_index) # sum(B * D), dim
-        output_queries = output_queries + unit_embedding # sum(B * D), dim
+        output_queries = unit_embedding
         sumD = output_queries.shape[0]
         output_queries = output_queries.repeat_interleave(self.query_length, dim=0) # sum(B * D * q_len), dim
         output_timestamps = torch.arange(self.query_length, device=x.device).repeat(sumD) + T # sum(B * D * q_len)

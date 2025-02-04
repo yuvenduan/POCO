@@ -307,7 +307,12 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
             for k in range(valid_seeds):
                 total[k] += performance[k] * pred_num[k]
 
-            assert pred_num[-1] == pred_num[0], "Different number of predictions (test data size) for different seeds, is this expected?"
+            if len(pred_num) > 1:
+                assert pred_num[-1] == pred_num[0], "Different number of predictions (test data size) for different seeds, is this expected?"
+            elif len(pred_num) == 0:
+                print("No data for", cfgs[0][idx].save_path)
+                continue
+
             sum_pred_num += pred_num[0]
 
         total = [x / sum_pred_num for x in total]
@@ -400,6 +405,28 @@ def compare_models_analysis():
         bar_labels=all_models, colors=plots.get_model_colors(all_models),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all',
+        fig_size=(15, 5), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8),
+    )
+
+def poyo_compare_embedding_mode_analysis():
+    datasets = ['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ]
+    model_list = ['base', 'latent session', 'input session', 'input + latent session',  'input session + region', 'input region + latent session', ]
+    cfgs = experiments.poyo_compare_embedding_mode()
+    performances = {}
+    for i_data, dataset in enumerate(datasets):
+        performance_list = get_weighted_performance(
+            cfgs, len(model_list), len(datasets), [i_data], transpose=True,
+        )
+        performances[dataset] = performance_list
+
+    plot_datasets = ['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ]
+    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=model_list, colors=plots.get_model_colors(model_list),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='poyo_compare_embedding_mode', fig_name='poyo_compare_embedding_mode',
         fig_size=(15, 5), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8),
     )
