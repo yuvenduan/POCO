@@ -216,6 +216,10 @@ class Decoder(nn.Module):
         self.unit_types = list(itertools.chain(*unit_types))
         self.unit_types = [torch.from_numpy(unit_type).to(DEVICE) for unit_type in self.unit_types]
 
+        if config.circular_conv:
+            self.w = nn.Parameter(0.02 * torch.randn(1, self.Tin))
+        self.circular_conv = config.circular_conv
+
         if config.tokenizer_type == 'vqvae':
             assert config.tokenizer_dir is not None, "Pre-trained tokenizer dir must be provided for vqvae"
             model_path = os.path.join(config.tokenizer_dir, config.tokenizer_state_dict_file)
@@ -296,6 +300,13 @@ class Decoder(nn.Module):
             self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in input_size])
 
         self.normalizer = MuStdWrapper(config, input_size)
+
+    def circular_convolution(self, x, w):
+        x = torch.fft.rfft(x, dim=1, norm='ortho')
+        w = torch.fft.rfft(w, dim=1, norm='ortho')
+        y = x * w
+        out = torch.fft.irfft(y, n=self.Tin, dim=1, norm="ortho")
+        return out
         
     def forward(self, x, unit_indices=None, unit_timestamps=None):
         """
@@ -305,8 +316,11 @@ class Decoder(nn.Module):
 
         bsz = [xx.size(1) for xx in x]
         L = x[0].size(0)
-        x = self.normalizer.normalize(x, concat_output=True)
+        x = self.normalizer.normalize(x, concat_output=True) # sum(B * D), L
         pred_step = self.pred_step
+
+        if self.circular_conv:
+            x = self.circular_convolution(x, self.w)
 
         # Tokenize the input sequence
         if self.tokenizer_type == 'vqvae':

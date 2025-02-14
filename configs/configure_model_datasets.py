@@ -68,8 +68,8 @@ def configure_dataset(configs: dict):
                     else:
                         raise ValueError(f'Unknown dataset type: {dataset_type}')
                 
-                elif dataset_name == 'celegans':
-                    config.dataset.append('celegans')
+                elif dataset_name in ['celegans', 'celegansflavell']:
+                    config.dataset.append(dataset_name)
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 100
                     elif dataset_type == None:

@@ -2,7 +2,7 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'Simulation', 'StimZebrafish', 'Celegans', 'Mice', 'get_baseline_performance']
+__all__ = ['Zebrafish', 'Simulation', 'StimZebrafish', 'Celegans', 'CelegansFlavell', 'Mice', 'get_baseline_performance']
 
 import torch
 import torch.utils.data as tud
@@ -12,7 +12,9 @@ import os
 
 from tqdm import tqdm
 from configs.configs import DatasetConfig
-from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, MICE_PROCESSED_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS
+from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, \
+                                    MICE_PROCESSED_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS, \
+                                    CELEGANS_FLAVELL_PROCESSED_DIR, N_CELEGANS_FLAVELL_SESSIONS
 from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
@@ -430,6 +432,9 @@ class StimZebrafish(Zebrafish):
     
 class Celegans(NeuralDataset):
 
+    data_dir = CELEGANS_PROCESSED_DIR
+    n_sessions = N_CELEGANS_SESSIONS
+
     def get_activity_unit_id(self, filename, config: DatasetConfig):
         """
         Load the neural activity from the file
@@ -453,20 +458,20 @@ class Celegans(NeuralDataset):
         all_unit_types = []
 
         all_neuron_names = []
-        for i in range(N_CELEGANS_SESSIONS):
-            filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{i}.npz')
+        for i in range(self.n_sessions):
+            filename = os.path.join(self.data_dir, f'{i}.npz')
             with np.load(filename) as data:
                 for name in data['neuron_names']:
                     if name[0] >= 'A' and name[0] <= 'Z' and name not in all_neuron_names:
                         all_neuron_names.append(name)
         self.all_neuron_names = all_neuron_names
 
-        for idx in range(N_CELEGANS_SESSIONS):
+        for idx in range(self.n_sessions):
             if config.session_ids != None and idx not in config.session_ids:
                 continue
             if config.animal_ids != None and idx not in config.animal_ids:
                 continue
-            filename = os.path.join(CELEGANS_PROCESSED_DIR, f'{idx}.npz')
+            filename = os.path.join(self.data_dir, f'{idx}.npz')
 
             all_activity, unit_type = self.get_activity_unit_id(filename, config)
             all_activity = self.downsample(all_activity)
@@ -474,6 +479,11 @@ class Celegans(NeuralDataset):
             all_unit_types.append(unit_type)
 
         return all_activities, all_unit_types
+    
+class CelegansFlavell(Celegans):
+
+    data_dir = CELEGANS_FLAVELL_PROCESSED_DIR
+    n_sessions = N_CELEGANS_FLAVELL_SESSIONS
     
 class Mice(Celegans):
 
@@ -592,6 +602,8 @@ def get_baseline_performance(config: DatasetConfig, phase='train'):
         dataset = StimZebrafish(config, phase=phase)
     elif config.dataset == 'celegans':
         dataset = Celegans(config, phase=phase)
+    elif config.dataset == 'celegansflavell':
+        dataset = CelegansFlavell(config, phase=phase)
     elif config.dataset == 'mice':
         dataset = Mice(config, phase=phase)
     else:

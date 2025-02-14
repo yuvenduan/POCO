@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from configs.config_global import FIG_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS
+from configs.config_global import FIG_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS, N_CELEGANS_FLAVELL_SESSIONS
 from utils.config_utils import configs_dict_unpack, configs_transpose
 from analysis import plots, analyze_performance, analyze_embedding
 from configs import experiments
@@ -207,13 +207,14 @@ def compare_param_analysis(
     mode_list=[''],
     save_dir='compare_param', 
     plot_model_list=None,
-    key='val_mse',
-    show_chance=True,
+    key='val_score',
+    show_chance=False,
     logarithm=False,
-    key_name=None
+    key_name=None,
+    dataset=None,
+    transpose=False
 ):
     """
-    **Need to update
     For each model, plot the best test loss vs. the parameter
 
     :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
@@ -229,9 +230,24 @@ def compare_param_analysis(
         curves = []
         for i, model in enumerate(model_list):
             performances = []
+            base_idx = k * len(model_list) * len(param_list)
+
+            if dataset is None:
+                dataset_name = cfgs[0][base_idx].dataset_label[0]
+            else:
+                dataset_name = dataset
+
             for j, param in enumerate(param_list):    
-                idx = (k * len(model_list) + i) * len(param_list) + j
-                loss = get_performance(cfgs, idx, key1=key, key2=key)
+                idx = i * len(param_list) + j + base_idx
+                if transpose:
+                    idx = j * len(model_list) + i + base_idx
+
+                print("Getting performance for", model, param, mode, "at ", cfgs[0][idx].save_path)
+                
+                loss = get_performance(cfgs, idx, key=f'{dataset_name}_{key}')
+
+                print("Performance:", loss)
+
                 if logarithm:
                     loss = np.log(loss)
                 performances.append(loss)
@@ -240,7 +256,7 @@ def compare_param_analysis(
 
         if show_chance:
             val_baseline_performance = [get_baseline_performance(
-                    cfgs[0][k * len(model_list) * len(param_list) + j], 'test')[f'avg_copy_{key[-3: ]}'] for j in range(len(param_list))]
+                    cfgs[0][base_idx], 'test')[f'avg_copy_{key[-3: ]}'] for j in range(len(param_list))]
             if logarithm:
                 val_baseline_performance = np.log(val_baseline_performance)
             def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
@@ -320,6 +336,49 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
 
     return performances
 
+def poyo_compare_compression_factor_analysis():
+    cfgs = experiments.poyo_compare_compression_factor()
+    compare_param_analysis(
+        cfgs, [4, 8, 16, 24, 48],
+        model_list=['POYO', ],
+        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        param_name='token size',
+        transpose=True
+    )
+
+def poyo_compare_model_size_analysis():
+    cfgs = experiments.poyo_compare_hidden_size()
+    compare_param_analysis(
+        cfgs, [32, 128, 256, 512, 768, 1024, 1280, 1536, ],
+        model_list=['POYO', ],
+        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        param_name='hidden size',
+    )
+
+    cfgs = experiments.poyo_compare_num_layers()
+    compare_param_analysis(
+        cfgs, [1, 2, 4, 8, 12],
+        model_list=['POYO', ],
+        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        param_name='num layers',
+    )
+
+    cfgs = experiments.poyo_compare_num_latents()
+    compare_param_analysis(
+        cfgs, [1, 2, 4, 8, 16, ],
+        model_list=['POYO', ],
+        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        param_name='num latents',
+    )
+
+    cfgs = experiments.poyo_compare_num_heads()
+    compare_param_analysis(
+        cfgs, [1, 2, 4, 8, 16, ],
+        model_list=['POYO', ],
+        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        param_name='num heads',
+    )
+
 def compare_models_multi_session_analysis():
     cfgs = experiments.compare_models_multi_session()
     compare_model_training_curves(
@@ -329,38 +388,36 @@ def compare_models_multi_session_analysis():
         plot_train_test_curve=False,
     )
 
-def compare_models_sim_analysis():
-    cfgs = experiments.compare_models_sim()
-    model_list = experiments.single_session_model_list
-    compare_model_training_curves(
-        cfgs, 'compare_models_sim', 
-        model_list=model_list, 
-        mode_list=['sim128', 'sim512', ],
-        plot_train_test_curve=False
-    )
-
 def compare_models_multi_species_analysis():
     cfgs = experiments.compare_models_multi_species()
-    model_list = ['POYO', 'Linear', 'MultiAR_Transformer', ]
+    model_list = ['POYO', 'Linear', ]
     compare_model_training_curves(
         cfgs, 'compare_models_multi_species', 
-        model_list=model_list, 
-        plot_train_test_curve=False
-    )
-
-    cfgs = experiments.multi_species_test()
-    compare_model_training_curves(
-        cfgs, 'compare_models_multi_species_test',
-        model_list=['POYO', 'Linear',],
-        plot_train_test_curve=True
+        model_list=model_list,
     )
 
 def compare_models_analysis():
     # compare single session models & multi session models
-    cfgs = experiments.compare_models_multi_session()
+    """
+    cfgs = experiments.compare_models_multi_species()
+    all_species_model_list = ['All_POYO', 'All_Linear']
     performances = {}
+    dataset_list = [
+        'zebrafish', 'celegans', 'mice', 
+        'zebrafish_pc', 'celegans_pc', 'mice_pc',
+    ]
+    for i_data, dataset in enumerate(dataset_list):
+        performance_list = get_weighted_performance(
+            cfgs, len(all_species_model_list), 
+            1, [0], dataset=dataset
+        )
+        performances[dataset] = performance_list
+    """
+    
+    performances = {}
+    cfgs = experiments.compare_models_multi_session()
     multi_session_model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', 'MS_AR_Transformer', ]
-    dataset_list = ['zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+    dataset_list = ['celegansflavell', 'celegansflavell_pc', 'zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
 
     for i_data, dataset in enumerate(dataset_list):
         performance_list = get_weighted_performance(
@@ -378,6 +435,12 @@ def compare_models_analysis():
     performances['celegans_pc'] += get_weighted_performance(
         cfgs, len(single_session_model_list),
         N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS, 2 * N_CELEGANS_SESSIONS), transpose=True
+    )
+
+    cfgs = experiments.compare_models_celegans_flavell_single_session()
+    performances['celegansflavell'] += get_weighted_performance(
+        cfgs, len(single_session_model_list),
+        N_CELEGANS_FLAVELL_SESSIONS, range(N_CELEGANS_FLAVELL_SESSIONS), transpose=True
     )
 
     cfgs = experiments.compare_models_mice_single_session()
@@ -398,7 +461,7 @@ def compare_models_analysis():
 
     # compare all models
     all_models = multi_session_model_list + single_session_model_list
-    plot_datasets = ['zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+    plot_datasets = ['zebrafish_pc', 'celegans', 'celegansflavell', 'mice', 'mice_pc', ]
     performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(all_models))]
     plots.grouped_plot(
         performance, group_labels=plot_datasets,
@@ -406,12 +469,44 @@ def compare_models_analysis():
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all',
         fig_size=(15, 5), style='bar',
-        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8),
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+def compare_models_sim_analysis():
+    cfgs = experiments.compare_models_sim_multi_session()
+    model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', 'MS_AR_Transformer', ]
+    performances = {}
+    datasets = ['sim128', 'sim512', ]
+    for i_data, dataset in enumerate(datasets):
+        performance_list = get_weighted_performance(
+            cfgs, len(model_list), len(datasets), [i_data], transpose=True,
+        )
+        performances[dataset] = performance_list
+
+    cfgs = experiments.compare_models_sim()
+    single_session_model_list = experiments.single_session_model_list
+    performances['sim128'] += get_weighted_performance(
+        cfgs, len(single_session_model_list), 2, [0], transpose=True,
+    )
+    performances['sim512'] += get_weighted_performance(
+        cfgs, len(single_session_model_list), 2, [1], transpose=True,
+    )
+
+    model_list += single_session_model_list
+    plot_datasets = ['sim128', 'sim512', ]
+    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=model_list, colors=plots.get_model_colors(model_list),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 1], save_dir='compare_models_sim', fig_name='compare_models_sim',
+        fig_size=(8, 5), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
 def poyo_compare_embedding_mode_analysis():
     datasets = ['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ]
-    model_list = ['base', 'latent session', 'input session', 'input + latent session',  'input session + region', 'input region + latent session', ]
+    model_list = ['base', 'base + latent', 'session embedding', 'session embedding + latent', 'session + region embedding', 'session + region embedding + latent']
     cfgs = experiments.poyo_compare_embedding_mode()
     performances = {}
     for i_data, dataset in enumerate(datasets):
@@ -420,68 +515,22 @@ def poyo_compare_embedding_mode_analysis():
         )
         performances[dataset] = performance_list
 
-    plot_datasets = ['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ]
+    compare_model_training_curves(
+        cfgs, 'poyo_compare_embedding_mode',
+        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        model_list=model_list,
+    )
+
+    plot_datasets = ['celegans', 'zebrafish', 'mice', ]
     performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
     plots.grouped_plot(
         performance, group_labels=plot_datasets,
         bar_labels=model_list, colors=plots.get_model_colors(model_list),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='poyo_compare_embedding_mode', fig_name='poyo_compare_embedding_mode',
-        fig_size=(15, 5), style='bar',
-        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8),
+        fig_size=(8, 5), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
-
-def compare_unit_dropout_analysis():
-    cfgs = experiments.compare_unit_dropout()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            [0, 0.1, 0.3, 0.5, 0.7, ],
-            ['POYO', 'POYO_TOTEM', ],
-            param_name='unit_dropout',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ],
-        )
-
-def compare_num_layers_analysis():
-    cfgs = experiments.compare_num_layers()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            [1, 2, 4, 8],
-            ['POYO', 'POYO_TOTEM', ],
-            param_name='num_layers',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ],
-        )
-
-def compare_hidden_size_analysis():
-    cfgs = experiments.compare_hidden_size()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            [64, 256, 1024, ],
-            ['POYO', 'POYO_TOTEM', ],
-            param_name='hidden_size',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ]
-        )
-
-def poyo_compare_num_latents_analysis():
-    cfgs = experiments.poyo_compare_num_latents()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            [4, 16, ],
-            ['POYO', 'POYO_TOTEM', ],
-            param_name='num_latents',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ]
-        )
     
 def poyo_compare_mu_std_module_analysis():
     cfgs = experiments.poyo_compare_mu_std_module()
@@ -517,45 +566,6 @@ def poyo_compare_tmax_analysis():
             save_dir='poyo_params',
             key=key,
             mode_list=['spontaneous_pc', ]
-        )
-
-def compare_compression_factor_analysis():
-    cfgs = experiments.compare_compression_factor()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            [4, 16],
-            ['POYO', 'POYO_TOTEM', ],
-            param_name='compression_factor',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ]
-        )
-
-def compare_lr_analysis():
-    cfgs = experiments.compare_lr()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            np.log10([5e-5, 3e-4, 1e-3, 5e-3, ]),
-            ['POYO_cos', 'POYO', 'POYO_TOTEM_cos', 'POYO_TOTEM', 'Linear_cos', 'Linear', ],
-            param_name='log10(lr)',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ]
-        )
-
-def compare_wd_analysis():
-    cfgs = experiments.compare_wd()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            np.log10([1e-3, 1e-2, 0.1, 0.5, 1, 5, 10, ]),
-            ['POYO', 'POYO_TOTEM', 'Linear', ],
-            param_name='log10(wd)',
-            save_dir='poyo_params',
-            key=key,
-            mode_list=['spontaneous', 'spontaneous_pc', ]
         )
 
 def poyo_ablations_analysis():

@@ -69,6 +69,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.optimizer_type = 'AdamW'
         self.lr = 3e-4
         self.wdecay = 1e-4
+        self.log_loss = False # if True, use log loss, could be useful for multi-dataset training
 
         # scheduler
         self.use_lr_scheduler = False
@@ -130,7 +131,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.vqvae_embedding_dim = 64
         self.num_embeddings = 256
         self.commitment_cost = 0.25
-        self.compression_factor = 16
+        self.compression_factor = 48
         self.num_residual_layers = 2
         self.res_hidden_size = 64
 
@@ -148,12 +149,13 @@ class SupervisedLearningBaseConfig(BaseConfig):
         # decoder config
         self.tokenizer_dir = None
         self.tokenizer_type = 'none' # or 'cnn', 'vqvae'
+        self.circular_conv = False
         self.population_token = False # if True, use a single token for the whole population, otherwise use individual tokens
         self.population_token_dim = 512
         self.tokenizer_state_dict_file = f'net_{self.max_batch}.pth'
         self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
-        self.decoder_hidden_size = 256
-        self.separate_projs = True
+        self.decoder_hidden_size = 1024
+        self.separate_projs = False
         self.decoder_proj_init = 'fan_in'
         self.normalize_input = True # if True, normalize the input to the decoder
         self.mu_std_loss_coef = 0
@@ -163,11 +165,11 @@ class SupervisedLearningBaseConfig(BaseConfig):
         # poyo config
         self.poyo_num_latents = 8
         self.latent_session_embedding = False
-        self.unit_embedding_components = ['session', 'region', 'magnitude', ] # embeddings that will in added on top of unit embedding
+        self.unit_embedding_components = ['session', ] # embeddings that will in added on top of unit embedding
         self.poyo_query_mode = 'single' # or 'multi'
         self.poyo_output_mode = 'query' # or 'latent'
         self.decoder_num_layers = 4
-        self.decoder_num_heads = 8
+        self.decoder_num_heads = 16
         self.poyo_unit_dropout = 0
         self.rotary_attention_tmax = 100
 
@@ -193,7 +195,7 @@ class DatasetConfig:
         self.fc_dim = None # number of functional clusters to used for training; pc_dim will be ignored if this is not None
         self.normalize_mode = 'none' # 'minmax' (target will be [-1, 1]) or 'zscore' (target will zero-mean and unit variance) or 'none'
         self.sampling_freq = 1 # downsample the data by this factor
-        self.sampling_mode = 'avg' 
+        self.sampling_mode = 'avg'
         self.test_set_window_stride = 1 # larger stride will make the test set smaller but faster to evaluate
 
         # config for simulated data
@@ -242,7 +244,7 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.dataset = 'zebrafish' # or a list of dataset names
         self.dataset_config = {}
 
-        self.max_batch = 10000
+        self.max_batch = 20000
         self.test_batch = 100000 # test on all available data 
         self.mem = 32
         self.do_analysis = False

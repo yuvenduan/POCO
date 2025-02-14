@@ -78,6 +78,8 @@ def init_single_dataset(dataset_name: str, phase: str, config: DatasetConfig):
         dataset = datasets.StimZebrafish(config, phase=phase)
     elif dataset_name == 'celegans':
         dataset = datasets.Celegans(config, phase=phase)
+    elif dataset_name == 'celegansflavell':
+        dataset = datasets.CelegansFlavell(config, phase=phase)
     elif dataset_name == 'mice':
         dataset = datasets.Mice(config, phase=phase)
     else:

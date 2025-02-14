@@ -15,12 +15,14 @@ RAW_DIR = os.path.join(DATA_DIR, 'raw')
 EXP_TYPES = ['control', 'shocked', 'reshocked', 'ketamine']
 STIM_RAW_DIR = os.path.join(DATA_DIR, 'raw_stim')
 VISUAL_RAW_DIR = os.path.join(DATA_DIR, 'raw_visual')
-CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans')
+CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_zimmer')
+CELEGANS_FLAVELL_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_flavell')
 MICE_RAW_DIR = os.path.join(DATA_DIR, 'raw_mice')
 MICE_BRAIN_AREAS = ['PPC', 'RSP', 'V1', 'M2']
 
 N_ZEBRAFISH_SESSIONS = 19
 N_CELEGANS_SESSIONS = 5
+N_CELEGANS_FLAVELL_SESSIONS = 40
 N_MICE_SESSIONS = 12
 
 RAW_DATA_SUFFIX = '_CNMF_compressed.h5'
@@ -28,6 +30,7 @@ PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zscored')
 VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual_zscored')
 STIM_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_stim_zscored')
 CELEGANS_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_celegans')
+CELEGANS_FLAVELL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_celegans_flavell')
 MICE_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_mice')
 SIM_DIR = osp.join(DATA_DIR, 'simulations')
 
@@ -40,5 +43,6 @@ BASE_MODEL_COLORS = {'Linear': '#003D5B', 'POYO': '#EDAE49', 'Predict-POYO': '#E
 MODEL_COLORS = {}
 
 for model in BASE_MODEL_COLORS:
-    MODEL_COLORS['MS_' + model] = BASE_MODEL_COLORS[model]
-    MODEL_COLORS[model] = BASE_MODEL_COLORS[model] + '66'
+    MODEL_COLORS['All_' + model] = BASE_MODEL_COLORS[model]
+    MODEL_COLORS['MS_' + model] = BASE_MODEL_COLORS[model] + '85'
+    MODEL_COLORS[model] = BASE_MODEL_COLORS[model] + '60'

@@ -64,7 +64,10 @@ def evaluate_performance(
                     total += num
                 except StopIteration:
                     break
-            all_loss += test_loss / total * config.mod_w[i_tloader]
+            dataset_loss = test_loss / total
+            if config.log_loss:
+                dataset_loss = np.log(dataset_loss + 1e-4)
+            all_loss += dataset_loss * config.mod_w[i_tloader]
         avg_testloss = all_loss / sum(config.mod_w)
     
     logger.log_tabular('TestLoss', avg_testloss)
@@ -195,7 +198,10 @@ def model_train(config: NeuralPredictionConfig):
                 mod_weight = config.mod_w[i_loader]
                 data = next(train_iter)
                 data = get_full_input(data, i_loader, config, train_data.input_sizes)
-                loss += task_func.roll(net, data, 'train') * mod_weight
+                dataset_loss = task_func.roll(net, data, 'train')
+                if config.log_loss:
+                    dataset_loss = torch.log(dataset_loss + 1e-4)
+                loss += dataset_loss * mod_weight
 
             loss.backward()
             # gradient clipping
