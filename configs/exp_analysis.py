@@ -265,8 +265,6 @@ def compare_param_analysis(
                 
                 loss = get_performance(cfgs, idx, key=f'{dataset_name}_{key}')
 
-                print("Performance:", loss)
-
                 if logarithm:
                     loss = np.log(loss)
                 performances.append(loss)
@@ -274,8 +272,11 @@ def compare_param_analysis(
             curves.append(performances)
 
         if show_chance:
-            val_baseline_performance = [get_baseline_performance(
-                    cfgs[0][base_idx], 'test')[f'avg_copy_{key[-3: ]}'] for j in range(len(param_list))]
+            if key == 'val_score':
+                val_baseline_performance = [0] * len(param_list)
+            else:
+                val_baseline_performance = [get_baseline_performance(
+                        cfgs[0][base_idx], 'test')[f'avg_copy_{key[-3: ]}'] for j in range(len(param_list))]
             if logarithm:
                 val_baseline_performance = np.log(val_baseline_performance)
             def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
@@ -303,14 +304,19 @@ def compare_param_analysis(
             colors=colors,
         )
 
-def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, key='val_score', weighted=False, dataset=None):
+def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, key='val_score', weighted=None, dataset=None):
     """
     Get the weighted average performance from multiple experiments (weighted by the size of test set, or just average)
     
-    :param cfgs: a dictionary of lists, each key corresponds to a seed, each list has length n_models * n_exps
+    :param cfgs: a dictionary of lists, each key corresponds to a seed, each list has length n_models * n_exps.
+        If transpose is True, the list should be of length n_exps * n_models
     :param n_models: the number of models to compare
     :param n_exps: the number of experiments
     :param exp_list: a list of experiments to take the weighted average, each element in the list is a integer in [0, n_exps)
+    :param transpose: whether the configuration list is transposed
+    :param key: the key to get the performance from the configuration
+    :param weighted: if None, average the performance; if 'pred_num', weight the performance by the number of predictions; 
+        if 'session', weight the performance by the number of sessions in the training set
 
     :return: a list of length n_models: weighted performances
     """
@@ -319,7 +325,7 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
     for i in range(n_models):
 
         total = [0 for _ in range(len(cfgs))]
-        sum_pred_num = 0
+        sum_weights = 0
         valid_seeds = len(cfgs)
 
         for j in exp_list:
@@ -333,25 +339,32 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
                 dataset_name = dataset
             performance = get_performance(cfgs, idx, key=f'{dataset_name}_{key}')
 
-            if weighted:
-                pred_num = get_performance(cfgs, idx, key=f'{dataset_name}_pred_num')
+            if weighted == 'pred_num':
+                weight = get_performance(cfgs, idx, key=f'{dataset_name}_pred_num')
+            elif weighted == 'session':
+                id_list = cfgs[0][idx].dataset_config[dataset_name].session_ids
+                weight = len(id_list) if id_list is not None else 1
+                weight = [weight] * len(performance)
             else:
-                pred_num = [1 for _ in range(len(performance))]
+                weight = [1] * len(performance)
 
             valid_seeds = min(valid_seeds, len(performance))
             for k in range(valid_seeds):
-                total[k] += performance[k] * pred_num[k]
+                total[k] += performance[k] * weight[k]
 
-            if len(pred_num) > 1:
-                assert pred_num[-1] == pred_num[0], "Different number of predictions (test data size) for different seeds, is this expected?"
-            elif len(pred_num) == 0:
+            if len(weight) > 1:
+                assert weight[-1] == weight[0], "Different weight for different seeds, is this expected?"
+            elif len(weight) == 0:
                 print("No data for", cfgs[0][idx].save_path)
                 continue
 
-            sum_pred_num += pred_num[0]
+            sum_weights += weight[0]
 
-        total = [x / sum_pred_num for x in total]
+        total = [x / sum_weights for x in total]
         performances.append(total[: valid_seeds])
+
+        if valid_seeds == 0:
+            print("No valid seeds for", i, "model", cfgs[0][i * n_exps].model_label)
 
     return performances
 
@@ -417,34 +430,39 @@ def compare_models_multi_session_analysis():
 
 def get_split_performance(cfgs, n_split_list, dataset_name, model_list=['POYO', 'Linear']):
     sum_n = sum(n_split_list)
-    model_list = ['POYO', 'Linear', ]
     performance = [[] for _ in range(len(model_list))]
     pc_performance = [[] for _ in range(len(model_list))]
     
     for i, n_split in enumerate(n_split_list):
         l = sum(n_split_list[: i])
         r = sum(n_split_list[: i + 1])
-        for j, model in enumerate(model_list):
-            performance[j].append(get_weighted_performance(cfgs, len(model_list), sum_n * 2, range(l, r)))
-            pc_performance[j].append(get_weighted_performance(cfgs, len(model_list), sum_n * 2, range(sum_n + l, sum_n + r)))
 
-    x_axis = range(len(n_split_list))
-    x_tick_labels = [f'{n_split}' for n_split in n_split_list]
+        data = get_weighted_performance(cfgs, len(model_list), sum_n * 2, range(l, r), transpose=True, weighted='session')
+        pc_data = get_weighted_performance(cfgs, len(model_list), sum_n * 2, range(sum_n + l, sum_n + r), transpose=True, weighted='session')
+
+        for j, model in enumerate(model_list):
+            performance[j].append(data[j])
+            pc_performance[j].append(pc_data[j])
+
+    x_axis = list(range(len(n_split_list)))
+    xtick_labels = [f'{n_split}' for n_split in n_split_list]
     
     def draw_chance(plt, x_axis, linewidth, capsize, capthick):
         plt.plot(x_axis, [0] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
+    colors = plots.get_model_colors(model_list)
     plots.error_plot(
         x_axis, performance, x_label='Number of splits', y_label='Prediction Score',
         label_list=model_list, save_dir='compare_training_set_size', fig_name=f'splits_vs_score_{dataset_name}',
-        xticks=x_axis, xtick_labels=x_tick_labels, extra_lines=draw_chance, 
+        xticks=x_axis, xticks_labels=xtick_labels, extra_lines=draw_chance, colors=colors,
         title=f'{dataset_name} ({max(n_split_list)} Sessions)'
     )
+    cfg: NeuralPredictionConfig = cfgs[0][-1]
     plots.error_plot(
         x_axis, pc_performance, x_label='Number of splits', y_label='Prediction Score',
         label_list=model_list, save_dir='compare_training_set_size', fig_name=f'splits_vs_score_{dataset_name}_pc',
-        xticks=x_axis, xtick_labels=x_tick_labels, extra_lines=draw_chance, 
-        title=f'{dataset_name} {cfgs[0][-1].pc_dim} PCs ({max(n_split_list)} Sessions)'
+        xticks=x_axis, xticks_labels=xtick_labels, extra_lines=draw_chance, colors=colors,
+        title=f'{dataset_name} {cfg.dataset_config[cfg.dataset_label[0]].pc_dim} PCs ({max(n_split_list)} Sessions)'
     )
 
 def compare_models_multiple_splits_analysis():
@@ -465,21 +483,21 @@ def compare_train_length_analysis():
     train_length_list = [128, 256, 512, 768, 1024, 1536, ]
     compare_param_analysis(
         cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)', 
-        mode_list=['celegansflavell', 'celegansflavell_pc', ], save_dir='compare_train_length'
+        mode_list=['celegansflavell', 'celegansflavell_pc', ], save_dir='compare_training_set_size', show_chance=True
     )
 
     cfgs = experiments.compare_train_length_mice()
     train_length_list = [128, 256, 512, 1024, 2048, 4096, 8192, 16394]
     compare_param_analysis(
         cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
-        mode_list=['mice', 'mice_pc', ], save_dir='compare_train_length'
+        mode_list=['mice', 'mice_pc', ], save_dir='compare_training_set_size', show_chance=True
     )
 
     cfgs = experiments.compare_train_length_zebrafish()
     train_length_list = [128, 256, 512, 1024, 2048, 3072]
     compare_param_analysis(
         cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
-        mode_list=['zebrafish_pc', ], save_dir='compare_train_length'
+        mode_list=['zebrafish_pc', ], save_dir='compare_training_set_size', show_chance=True
     )
 
 def compare_models_multi_species_analysis():
@@ -591,7 +609,7 @@ def compare_models_sim_analysis():
         bar_labels=model_list, colors=plots.get_model_colors(model_list),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 1], save_dir='compare_models_sim', fig_name='compare_models_sim',
-        fig_size=(8, 5), style='bar',
+        fig_size=(8, 4), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
@@ -675,37 +693,6 @@ def poyo_ablations_analysis():
         save_dir='poyo_ablations',
         mode_list=['spontaneous_pc', ]
     )
-
-def compare_train_length_analysis():
-    cfgs = experiments.compare_train_length_pc()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            np.log2([128, 256, 512, 1024, 2048, ]),
-            experiments.selected_model_list,
-            param_name='log2(recording length)',
-            save_dir='train_length',
-            key=key,
-            mode_list=['spontaneous', ],
-            plot_model_list=['POYO', 'Linear', ],
-            logarithm=True,
-            key_name='Test MSE' if key == 'val_mse' else 'Test MAE'
-        )
-
-    cfgs = experiments.compare_train_length_single_neuron()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            np.log2([128, 256, 512, 1024, 2048, 3000, ]),
-            experiments.selected_model_list,
-            param_name='log2(recording length)',
-            save_dir='train_length',
-            key=key,
-            mode_list=['ceelgans', ],
-            plot_model_list=['POYO', 'Linear', ],
-            logarithm=True,
-            key_name='Test MSE' if key == 'val_mse' else 'Test MAE'
-        )
 
 def detailed_performance_analysis():
     cfgs = experiments.compare_pc_dim()

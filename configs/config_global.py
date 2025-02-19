@@ -39,10 +39,10 @@ USE_CUDA = torch.cuda.is_available()
 DEVICE = torch.device("cuda" if USE_CUDA else "cpu")
 MAP_LOC = "cuda:0" if USE_CUDA else torch.device('cpu')
 LOG_LEVEL = logging.INFO
-BASE_MODEL_COLORS = {'Linear': '#003D5B', 'POYO': '#EDAE49', 'Predict-POYO': '#EDAE49', 'Latent_PLRNN': '#D1495B', 'AR_Transformer': '#00798C', 'TCN': '#ADD8E6', }
+BASE_MODEL_COLORS = {'Linear': '#003D5B', 'DLinear': '#334F6F', 'POYO': '#EDAE49', 'Predict-POYO': '#EDAE49', 'Latent_PLRNN': '#D1495B', 'AR_Transformer': '#00798C', 'PaiFilter': '#ADD8E6', 'TCN': '#FFA07A', }
 MODEL_COLORS = {}
 
 for model in BASE_MODEL_COLORS:
-    MODEL_COLORS['All_' + model] = BASE_MODEL_COLORS[model]
-    MODEL_COLORS['MS_' + model] = BASE_MODEL_COLORS[model] + '85'
-    MODEL_COLORS[model] = BASE_MODEL_COLORS[model] + '60'
+    MODEL_COLORS['All_' + model] = BASE_MODEL_COLORS[model] + '60'
+    MODEL_COLORS['MS_' + model] = BASE_MODEL_COLORS[model]
+    MODEL_COLORS[model] = BASE_MODEL_COLORS[model] + '85'

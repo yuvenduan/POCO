@@ -8,11 +8,13 @@ from collections.abc import Iterable
 
 def get_model_colors(model_list):
     colors = []
+    index = 1
     for i, model in enumerate(model_list):
         if model in MODEL_COLORS:
             colors.append(MODEL_COLORS[model])
         else:
-            colors.append('C' + str(i + 1))
+            colors.append('C' + str(index))
+            index += 1
     return colors
 
 def adjust_figure(ax=None):
@@ -47,9 +49,12 @@ def heatmap_plot(
     plt.close()
 
 def get_sem(data):
+    # might get warnings when len(data) == 1
     return np.std(data, ddof=1) / np.sqrt(len(data))
 
 def remove_nan(data):
+    if isinstance(data, (list, tuple, np.ndarray)) and len(data) == 0:
+        assert False, 'missing data'
     if isinstance(data, pd.Series):
         return data.dropna().values
     elif isinstance(data[0], (list, tuple, np.ndarray)):
@@ -220,16 +225,16 @@ def error_plot(
     if title:
         plt.title(title, fontsize=fontsize)
 
-    if xticks is not None:
-        plt.xticks(xticks, labels=xticks_labels)
-    plt.xticks(fontsize=fontsize)
-
-    if yticks is not None:
-        plt.yticks(yticks, labels=yticks_labels)
-    plt.yticks(fontsize=fontsize)
-
     plt.xscale(xscale)
     plt.yscale(yscale)
+
+    plt.xticks(fontsize=fontsize)
+    if xticks is not None:
+        plt.xticks(xticks, labels=xticks_labels)
+    
+    plt.yticks(fontsize=fontsize)
+    if yticks is not None:
+        plt.yticks(yticks, labels=yticks_labels)
 
     if xlim is not None:
         plt.xlim(xlim)
@@ -386,15 +391,12 @@ def grouped_plot(
         plt.xlim(xlim)
     if ylim is not None:
         plt.ylim(ylim)
-    if xticks is not None:
-        plt.xticks(xticks)
-    plt.xticks(fontsize=fontsize, labels=xticks_labels)
-    if yticks is not None:
-        plt.yticks(yticks)
-    plt.yticks(fontsize=fontsize, labels=yticks_labels)    
-
     plt.xticks(fontsize=fontsize)
-    plt.yticks(fontsize=fontsize)    
+    if xticks is not None:
+        plt.xticks(xticks, labels=xticks_labels)
+    plt.yticks(fontsize=fontsize)
+    if yticks is not None:
+        plt.yticks(yticks, labels=yticks_labels)
 
     if legend:
         if legend_fontsize is None:
