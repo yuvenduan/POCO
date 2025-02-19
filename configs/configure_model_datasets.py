@@ -11,6 +11,7 @@ def configure_dataset(configs: dict):
     - dataset_name: the name of the dataset (e.g. zebrafish, celegans, mice, sim)
     - dataset_type: the type of the dataset (e.g. pc, fc, avg)
     - session_id: the id of the session (e.g. 0, 1, 2), if not specified, all sessions are used
+        alternatively, the session_id can be a range (e.g. 0-2 represents sessions 0, 1)
     """
 
     for seed, config_list in configs.items():
@@ -26,6 +27,7 @@ def configure_dataset(configs: dict):
             for label in labels:
             
                 session_id = label.split('-')[1] if len(label.split('-')) > 1 else None
+                session_id_2 = label.split('-')[2] if len(label.split('-')) > 2 else None
                 label_prefix = label.split('-')[0]
                 dataset_name = label_prefix.split('_')[0]
                 dataset_type = label_prefix.split('_')[1] if len(label.split('_')) > 1 else None
@@ -35,8 +37,12 @@ def configure_dataset(configs: dict):
                 dataset_config.num_workers = config.num_workers
                 dataset_config.pred_length = config.pred_length
                 dataset_config.seq_length = config.seq_length
+                dataset_config.train_data_length = config.train_data_length if hasattr(config, 'train_data_length') else None
                 if session_id is not None:
-                    dataset_config.session_ids = [int(session_id)]
+                    if session_id_2 is not None:
+                        dataset_config.session_ids = list(range(int(session_id), int(session_id_2)))
+                    else:
+                        dataset_config.session_ids = [int(session_id)]
 
                 if dataset_name == 'zebrafish':
                     config.dataset.append('zebrafish')

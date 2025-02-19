@@ -247,7 +247,7 @@ def compare_models_multi_species():
     config.max_batch = 40000
     config_ranges = OrderedDict()
     config_ranges['model_label'] = ['POYO', 'Linear', ]
-    config_ranges['log_loss'] = [False, True, ]
+    config_ranges['log_loss'] = [False, ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -318,6 +318,112 @@ def compare_models_multi_session():
     config_ranges['model_label'] = multi_session_model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
 
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def create_splits(n_sessions, n_split_list, dataset_name):
+    splits = []
+    for n_split in n_split_list:
+        if n_split == 1:
+            splits.append(f'{dataset_name}-0-{n_sessions}')
+            continue
+        elif n_split == n_sessions:
+            for i in range(n_sessions):
+                splits.append(f'{dataset_name}-{i}')
+            continue
+        split_size = n_sessions // n_split
+        residual = n_sessions - split_size * n_split
+        start = 0
+        for i in range(n_split):
+            end = start + split_size + (1 if i < residual else 0)
+            splits.append(f'{dataset_name}-{start}-{end}')
+            start = end
+    return splits
+
+def compare_models_multiple_splits_celegans_flavell():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multiple_splits'
+    config.max_batch = 10000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = \
+        create_splits(40, [1, 2, 3, 5, 8, 12, 20, 40], 'celegansflavell') + \
+        create_splits(40, [1, 2, 3, 5, 8, 12, 20, 40], 'celegansflavell_pc')
+    config_ranges['model_label'] = ['POYO', 'Linear', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_multiple_splits_mice():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multiple_splits'
+    config.max_batch = 10000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = \
+        create_splits(12, [1, 2, 3, 4, 6, 12], 'mice') + \
+        create_splits(12, [1, 2, 3, 4, 6, 12], 'mice_pc')
+    config_ranges['model_label'] = ['POYO', 'Linear', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_multiple_splits_zebrafish():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multiple_splits'
+    config.max_batch = 10000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = \
+        create_splits(19, [1, 2, 3, 5, 10, 19], 'zebrafish') + \
+        create_splits(19, [1, 2, 3, 5, 10, 19], 'zebrafish_pc')
+    config_ranges['model_label'] = ['POYO', 'Linear', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_train_length_celegans_flavell():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_train_length'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['celegansflavell', 'celegansflavell_pc', ]
+    config_ranges['model_label'] = ['POYO', 'Linear', ]
+    config_ranges['train_data_length'] = [128, 256, 512, 768, 1024, 1536, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_train_length_mice():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_train_length'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['mice', 'mice_pc', ]
+    config_ranges['model_label'] = ['POYO', 'Linear', ]
+    config_ranges['train_data_length'] = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_train_length_zebrafish():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_train_length'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['zebrafish', 'zebrafish_pc', ]
+    config_ranges['model_label'] = ['POYO', 'Linear', ]
+    config_ranges['train_data_length'] = [128, 256, 512, 1024, 1536, 2048, 3072]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
     return configs

@@ -11,7 +11,14 @@ from configs import experiments
 from configs.configs import NeuralPredictionConfig
 from datasets.datasets import get_baseline_performance, Zebrafish, Simulation
 
-def get_curve(cfgs, idx, key='normalized_reward', max_batch=None, num_points=None, start=0):
+def get_curve(cfgs, idx, key='TestLoss', max_batch=None, num_points=None, start=0):
+    """
+    Read the training curve from the configuration
+    
+    :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
+    :param idx: the index of the configuration to read
+    :param key: the key to read from the configuration
+    """
 
     num_seeds = len(cfgs)
     
@@ -219,8 +226,20 @@ def compare_param_analysis(
 
     :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
         The list should be of length len(mode_list) * len(model_list) * len(param_list)
+        If transpose is True, the list should be of length len(mode_list) * len(param_list) * len(model_list)
     :param param_list: a list of parameters to compare, this will be the x-axis of the plot
     :param model_list: the list of models to compare, this will become legend of the plot
+    :param param_name: the name of the parameter, this will be the x-axis label of the plot
+    :param mode_list: a list of modes, this function will compare the models in each mode
+    :param save_dir: the directory to save the figures
+    :param plot_model_list: If None, plot all models in model_list; 
+        otherwise should be a list of models to plot
+    :param key: the key to get the performance from the configuration
+    :param show_chance: whether to show the chance performance on the plot
+    :param logarithm: whether to plot the logarithm of the performance
+    :param key_name: the name of the key, this will be the y-axis label of the plot
+    :param dataset: the dataset to plot results, if None, use all datasets in the configuration
+    :param transpose: whether the configuration list is transposed
     """
 
     key_name = key_name if key_name is not None else key
@@ -388,9 +407,84 @@ def compare_models_multi_session_analysis():
         plot_train_test_curve=False,
     )
 
+    cfgs = experiments.compare_models_zebrafish_single_neuron()
+    compare_model_training_curves(
+        cfgs, 'compare_models_zebrafish_single_neuron',
+        model_list=experiments.single_neuron_model_list,
+        mode_list=[''],
+        plot_train_test_curve=False,
+    )
+
+def get_split_performance(cfgs, n_split_list, dataset_name, model_list=['POYO', 'Linear']):
+    sum_n = sum(n_split_list)
+    model_list = ['POYO', 'Linear', ]
+    performance = [[] for _ in range(len(model_list))]
+    pc_performance = [[] for _ in range(len(model_list))]
+    
+    for i, n_split in enumerate(n_split_list):
+        l = sum(n_split_list[: i])
+        r = sum(n_split_list[: i + 1])
+        for j, model in enumerate(model_list):
+            performance[j].append(get_weighted_performance(cfgs, len(model_list), sum_n * 2, range(l, r)))
+            pc_performance[j].append(get_weighted_performance(cfgs, len(model_list), sum_n * 2, range(sum_n + l, sum_n + r)))
+
+    x_axis = range(len(n_split_list))
+    x_tick_labels = [f'{n_split}' for n_split in n_split_list]
+    
+    def draw_chance(plt, x_axis, linewidth, capsize, capthick):
+        plt.plot(x_axis, [0] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+
+    plots.error_plot(
+        x_axis, performance, x_label='Number of splits', y_label='Prediction Score',
+        label_list=model_list, save_dir='compare_training_set_size', fig_name=f'splits_vs_score_{dataset_name}',
+        xticks=x_axis, xtick_labels=x_tick_labels, extra_lines=draw_chance, 
+        title=f'{dataset_name} ({max(n_split_list)} Sessions)'
+    )
+    plots.error_plot(
+        x_axis, pc_performance, x_label='Number of splits', y_label='Prediction Score',
+        label_list=model_list, save_dir='compare_training_set_size', fig_name=f'splits_vs_score_{dataset_name}_pc',
+        xticks=x_axis, xtick_labels=x_tick_labels, extra_lines=draw_chance, 
+        title=f'{dataset_name} {cfgs[0][-1].pc_dim} PCs ({max(n_split_list)} Sessions)'
+    )
+
+def compare_models_multiple_splits_analysis():
+    cfgs = experiments.compare_models_multiple_splits_celegans_flavell()
+    n_split_list = [1, 2, 3, 5, 8, 12, 20, 40]
+    get_split_performance(cfgs, n_split_list, 'celegansflavell')
+    
+    cfgs = experiments.compare_models_multiple_splits_mice()
+    n_split_list = [1, 2, 3, 4, 6, 12]
+    get_split_performance(cfgs, n_split_list, 'mice')
+
+    cfgs = experiments.compare_models_multiple_splits_zebrafish()
+    n_split_list = [1, 2, 3, 5, 10, 19]
+    get_split_performance(cfgs, n_split_list, 'zebrafish')
+
+def compare_train_length_analysis():
+    cfgs = experiments.compare_train_length_celegans_flavell()
+    train_length_list = [128, 256, 512, 768, 1024, 1536, ]
+    compare_param_analysis(
+        cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)', 
+        mode_list=['celegansflavell', 'celegansflavell_pc', ], save_dir='compare_train_length'
+    )
+
+    cfgs = experiments.compare_train_length_mice()
+    train_length_list = [128, 256, 512, 1024, 2048, 4096, 8192, 16394]
+    compare_param_analysis(
+        cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
+        mode_list=['mice', 'mice_pc', ], save_dir='compare_train_length'
+    )
+
+    cfgs = experiments.compare_train_length_zebrafish()
+    train_length_list = [128, 256, 512, 1024, 2048, 3072]
+    compare_param_analysis(
+        cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
+        mode_list=['zebrafish_pc', ], save_dir='compare_train_length'
+    )
+
 def compare_models_multi_species_analysis():
     cfgs = experiments.compare_models_multi_species()
-    model_list = ['POYO', 'Linear', ]
+    model_list = ['POYO', 'POYO_logloss', 'Linear', 'Linear_logloss']
     compare_model_training_curves(
         cfgs, 'compare_models_multi_species', 
         model_list=model_list,
@@ -398,13 +492,12 @@ def compare_models_multi_species_analysis():
 
 def compare_models_analysis():
     # compare single session models & multi session models
-    """
     cfgs = experiments.compare_models_multi_species()
     all_species_model_list = ['All_POYO', 'All_Linear']
     performances = {}
     dataset_list = [
-        'zebrafish', 'celegans', 'mice', 
-        'zebrafish_pc', 'celegans_pc', 'mice_pc',
+        'zebrafish', 'celegans', 'celegansflavell', 'mice', 
+        'zebrafish_pc', 'celegans_pc', 'celegansflavell_pc', 'mice_pc',
     ]
     for i_data, dataset in enumerate(dataset_list):
         performance_list = get_weighted_performance(
@@ -412,9 +505,7 @@ def compare_models_analysis():
             1, [0], dataset=dataset
         )
         performances[dataset] = performance_list
-    """
     
-    performances = {}
     cfgs = experiments.compare_models_multi_session()
     multi_session_model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', 'MS_AR_Transformer', ]
     dataset_list = ['celegansflavell', 'celegansflavell_pc', 'zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
@@ -424,7 +515,7 @@ def compare_models_analysis():
             cfgs, len(multi_session_model_list), 
             len(dataset_list), [i_data], transpose=True,
         )
-        performances[dataset] = performance_list
+        performances[dataset] += performance_list
 
     cfgs = experiments.compare_models_celegans_single_session()
     single_session_model_list = experiments.single_session_model_list
@@ -460,7 +551,7 @@ def compare_models_analysis():
     )
 
     # compare all models
-    all_models = multi_session_model_list + single_session_model_list
+    all_models = all_species_model_list + multi_session_model_list + single_session_model_list
     plot_datasets = ['zebrafish_pc', 'celegans', 'celegansflavell', 'mice', 'mice_pc', ]
     performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(all_models))]
     plots.grouped_plot(
@@ -585,68 +676,6 @@ def poyo_ablations_analysis():
         mode_list=['spontaneous_pc', ]
     )
 
-def compare_num_animals_analysis():
-    per_animal_cfgs = experiments.per_animal_pc()
-    model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
-    colors = plots.get_model_colors(model_list)
-    per_animal_performance = get_weighted_performance(
-        per_animal_cfgs, len(model_list), 19, range(19))
-    
-    multi_animal_cfgs = experiments.multi_animal_pc()
-    split5_performance = get_weighted_performance(
-        multi_animal_cfgs, len(model_list), 8, range(5))
-    split2_performance = get_weighted_performance(
-        multi_animal_cfgs, len(model_list), 8, range(5, 7))
-    all_performance = get_weighted_performance(
-        multi_animal_cfgs, len(model_list), 8, range(7, 8))
-    
-    curves = []
-    for i, model in enumerate(model_list):
-        curves.append([per_animal_performance[i], split5_performance[i], split2_performance[i], all_performance[i]])
-    
-    plots.error_plot(
-        range(4), curves,
-        x_label='Number of Splits',
-        y_label='Mean Validation MSE',
-        xticks=range(4),
-        xticks_labels=['19', '5', '2', '1'],
-        label_list=model_list,
-        save_dir='compare_num_animals',
-        fig_name='num_animals_vs_mse',
-        colors=colors,
-        figsize=(3.5, 3),
-        mode='errorshade',
-    )
-
-def compare_cohorts_analysis():
-    configs = experiments.multi_cohorts_pc()
-    data = analyze_performance.analyze_predictivity_all(configs)
-
-    for phase in ['train', 'val', 'test']:
-        curves = []
-        model_list = ['Linear', 'Latent_PLRNN', 'Predict-POYO']
-
-        for i, model in enumerate(model_list):
-            curve = []
-            for j in range(4):
-                performance = data[i * 4 + j][phase]['animal_mse']
-                print(performance.shape)
-                curve.append(np.mean(performance[: 5], axis=0))
-
-            curves.append(curve)
-        
-        plots.error_plot(
-            range(1, 5), curves,
-            x_label='Number of Cohorts for Training',
-            y_label='Mean Validation MSE (Control Cohort)',
-            xticks=range(1, 5),
-            label_list=model_list,
-            save_dir='compare_cohorts',
-            fig_name=f'cohorts_vs_mse_{phase}',
-            mode='errorshade',
-            figsize=(3.5, 3),
-        )
-            
 def compare_train_length_analysis():
     cfgs = experiments.compare_train_length_pc()
     for key in ['val_mse', 'val_mae']:
@@ -676,22 +705,6 @@ def compare_train_length_analysis():
             plot_model_list=['POYO', 'Linear', ],
             logarithm=True,
             key_name='Test MSE' if key == 'val_mse' else 'Test MAE'
-        )
-
-    return
-
-    cfgs = experiments.compare_train_length_sim()
-    for key in ['val_mse', 'val_mae']:
-        compare_param_analysis(
-            cfgs, 
-            np.log2([256, 1024, 4096, 16384, 65536, ]),
-            experiments.selected_model_list,
-            param_name='log2(train_data_length)',
-            save_dir='train_length',
-            key=key,
-            plot_model_list=['Linear', 'Latent_PLRNN', 'POYO'],
-            mode_list=['sim512', ],
-            logarithm=True
         )
 
 def detailed_performance_analysis():
