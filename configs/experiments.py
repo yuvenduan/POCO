@@ -144,13 +144,13 @@ def compare_unit_dropout():
     configs = configure_dataset(configs)
     return configs
 
-single_session_model_list = ['POYO', 'PaiFilter', 'Linear', 'DLinear', 'TCN', 'AR_Transformer', 'Latent_PLRNN', ]
-multi_session_model_list = ['POYO', 'Linear', 'Latent_PLRNN', 'MultiAR_Transformer', ]
-single_neuron_model_list = ['POYO', 'Linear', 'DLinear']
+single_session_model_list = ['POYO', 'Linear', 'Latent_PLRNN', 'DLinear', 'PaiFilter', 'TCN', 'AR_Transformer', ]
+multi_session_model_list = ['POYO', 'Linear', 'Latent_PLRNN', 'Latent_LRRNN4', 'Latent_LRRNN16', 'Latent_RNN', 'MultiAR_Transformer', 'MultiAR_S4', 'MultiAR_RNN', 'MultiAR_LSTM', 'MultiAR_GRU']
+single_neuron_model_list = ['POYO', 'Linear', 'DLinear', ]
 
 # POYO experiments: poyo_compare_embedding_mode poyo_compare_compression_factor poyo_compare_num_latents poyo_compare_hidden_size poyo_compare_num_layers poyo_compare_num_heads
-# core experiments: compare_models_multi_species compare_models_zebrafish_pc_single_session compare_models_celegans_single_session compare_models_mice_single_session compare_models_multi_session compare_models_zebrafish_single_neuron 
-# compare_models_sim_multi_session compare_models_sim
+# core experiments (single session): compare_models_zebrafish_pc_single_session compare_models_celegans_single_session compare_models_mice_single_session compare_models_zebrafish_ahrens_single_session compare_models_celegans_flavell_single_session
+# core experiments (others): compare_models_multi_session compare_models_multi_species compare_models_sim_multi_session compare_models_sim compare_models_zebrafish_single_neuron
 
 def poyo_compare_embedding_mode():
     config = NeuralPredictionConfig()
@@ -309,12 +309,29 @@ def compare_models_mice_single_session():
     configs = configure_dataset(configs)
     return configs
 
+def compare_models_zebrafish_ahrens_single_session():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_zebrafish_ahrens_single_session'
+    config.max_batch = 5000
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = [f'zebrafishahrens_pc-{session}' for session in range(15)]
+    config_ranges['model_label'] = single_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+dataset_list = ['celegansflavell', 'celegansflavell_pc', 'zebrafish_pc', 'zebrafishahrens_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+large_dataset_list = ['zebrafish', 'zebrafisharhens']
+
 def compare_models_multi_session():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_models_multi_session'
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['celegansflavell', 'celegansflavell_pc', 'zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+    config_ranges['dataset_label'] = dataset_list
     config_ranges['model_label'] = multi_session_model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
 
@@ -433,7 +450,7 @@ def compare_models_zebrafish_single_neuron():
     config.experiment_name = 'compare_models_zebrafish_single_neuron'
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = ['zebrafish', ]
+    config_ranges['dataset_label'] = ['zebrafish', 'zebrafishahrens']
     config_ranges['model_label'] = single_neuron_model_list
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
 

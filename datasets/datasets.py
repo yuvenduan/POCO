@@ -2,7 +2,7 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'Simulation', 'StimZebrafish', 'Celegans', 'CelegansFlavell', 'Mice', 'get_baseline_performance']
+__all__ = ['Zebrafish', 'ZebrafishAhrens', 'Simulation', 'StimZebrafish', 'Celegans', 'CelegansFlavell', 'Mice', 'get_baseline_performance']
 
 import torch
 import torch.utils.data as tud
@@ -12,10 +12,11 @@ import os
 
 from tqdm import tqdm
 from configs.configs import DatasetConfig
-from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR, STIM_PROCESSED_DIR, CELEGANS_PROCESSED_DIR, \
-                                    MICE_PROCESSED_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS, \
-                                    CELEGANS_FLAVELL_PROCESSED_DIR, N_CELEGANS_FLAVELL_SESSIONS
-from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names, get_mice_sessions
+from configs.config_global import \
+    ZEBRAFISH_PROCESSED_DIR, ZEBRAFISH_STIM_PROCESSED_DIR, ZEBRAFISH_AHRENS_PROCESSED_DIR, N_ZEBRAFISH_AHNRENS_SESSIONS, \
+    CELEGANS_PROCESSED_DIR, N_CELEGANS_SESSIONS, CELEGANS_FLAVELL_PROCESSED_DIR, N_CELEGANS_FLAVELL_SESSIONS, \
+    SIM_DIR, MICE_PROCESSED_DIR
+from utils.data_utils import get_exp_names, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
 
@@ -393,7 +394,7 @@ class Zebrafish(NeuralDataset):
                 if config.animal_ids != None and i_exp not in config.animal_ids:
                     continue
 
-                filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
+                filename = os.path.join(ZEBRAFISH_PROCESSED_DIR, exp_name + '.npz')
                 all_activity, unit_type = self.get_activity_unit_id(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
@@ -422,11 +423,48 @@ class StimZebrafish(Zebrafish):
                 if config.animal_ids != None and i_exp not in config.animal_ids:
                     continue
 
-                filename = os.path.join(STIM_PROCESSED_DIR, exp_name + '.npz')
+                filename = os.path.join(ZEBRAFISH_STIM_PROCESSED_DIR, exp_name + '.npz')
                 all_activity, unit_type = self.get_activity_unit_id(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
                 all_unit_types.append(unit_type)
+
+        return all_activities, all_unit_types
+    
+class ZebrafishAhrens(Zebrafish):
+
+    def get_activity_unit_id(self, filename, config):
+        """
+        Load the neural activity from the file
+        """
+        with np.load(filename) as data:
+            assert config.fc_dim is None, 'Only support using PC for Ahrens data'
+            if config.pc_dim is None:
+                activity: np.ndarray = data['M']
+                unit_type = np.zeros((activity.shape[0], ))
+            else:
+                assert config.brain_regions == 'all', 'Only support using all brain regions when using PC'
+                activity: np.ndarray = data['PC'][: config.pc_dim]
+                unit_type = np.arange(activity.shape[0])
+        return activity, unit_type.astype(int)
+
+    def load_all_activities(self, config: DatasetConfig):
+        all_activities = []
+        all_unit_types = []
+        n_sessions = 0
+
+        for i in range(N_ZEBRAFISH_AHNRENS_SESSIONS):
+            n_sessions += 1
+            if config.session_ids != None and n_sessions - 1 not in config.session_ids:
+                continue
+            if config.animal_ids != None and i not in config.animal_ids:
+                continue
+
+            filename = os.path.join(ZEBRAFISH_AHRENS_PROCESSED_DIR, f'{i}.npz')
+            all_activity, unit_type = self.get_activity_unit_id(filename, config)
+            all_activity = self.downsample(all_activity)
+            all_activities.append(all_activity)
+            all_unit_types.append(unit_type)
 
         return all_activities, all_unit_types
     
@@ -598,8 +636,10 @@ def get_baseline_performance(config: DatasetConfig, phase='train'):
         dataset = Zebrafish(config, phase=phase)
     elif config.dataset == 'simulation':
         dataset = Simulation(config, phase=phase)
-    elif config.dataset == 'zebrafish_stim':
+    elif config.dataset == 'zebrafishstim':
         dataset = StimZebrafish(config, phase=phase)
+    elif config.dataset == 'zebrafishahrens':
+        dataset = ZebrafishAhrens(config, phase=phase)
     elif config.dataset == 'celegans':
         dataset = Celegans(config, phase=phase)
     elif config.dataset == 'celegansflavell':

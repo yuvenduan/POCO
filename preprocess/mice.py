@@ -36,7 +36,7 @@ def mice_preprocess():
 
             all_activity = np.concatenate(all_activity, axis=0)
             all_activity_df = np.concatenate(all_activity_df, axis=0)
-            all_activity_df = preprocess_data(all_activity_df.T, 5.36)[1].T
+            # all_activity_df = preprocess_data(all_activity_df.T, 5.36)[1].T
             area_ids = np.concatenate(area_ids, axis=0)
 
             data_dict = process_data_matrix(all_activity_df, 'preprocess/mice', pc_dim=512, exp_name=f'{mouse}_{session}', normalize_mode='none')

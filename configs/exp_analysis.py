@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from configs.config_global import FIG_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS, N_CELEGANS_FLAVELL_SESSIONS
+from configs.config_global import FIG_DIR, N_CELEGANS_SESSIONS, N_MICE_SESSIONS, N_ZEBRAFISH_SESSIONS, N_CELEGANS_FLAVELL_SESSIONS, N_ZEBRAFISH_AHNRENS_SESSIONS
 from utils.config_utils import configs_dict_unpack, configs_transpose
 from analysis import plots, analyze_performance, analyze_embedding
 from configs import experiments
@@ -444,7 +444,7 @@ def get_split_performance(cfgs, n_split_list, dataset_name, model_list=['POYO', 
             performance[j].append(data[j])
             pc_performance[j].append(pc_data[j])
 
-    x_axis = list(range(len(n_split_list)))
+    x_axis = list(range(len(n_split_list) - 1, -1, -1))
     xtick_labels = [f'{n_split}' for n_split in n_split_list]
     
     def draw_chance(plt, x_axis, linewidth, capsize, capthick):
@@ -494,10 +494,10 @@ def compare_train_length_analysis():
     )
 
     cfgs = experiments.compare_train_length_zebrafish()
-    train_length_list = [128, 256, 512, 1024, 2048, 3072]
+    train_length_list = [128, 256, 512, 1024, 1536, 2048, 3072]
     compare_param_analysis(
         cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
-        mode_list=['zebrafish_pc', ], save_dir='compare_training_set_size', show_chance=True
+        mode_list=['zebrafish', 'zebrafish_pc', ], save_dir='compare_training_set_size', show_chance=True
     )
 
 def compare_models_multi_species_analysis():
@@ -517,64 +517,103 @@ def compare_models_analysis():
         'zebrafish', 'celegans', 'celegansflavell', 'mice', 
         'zebrafish_pc', 'celegans_pc', 'celegansflavell_pc', 'mice_pc',
     ]
+
+    def set_performance(performance_list, model_list, dataset_name):
+        for i, model in enumerate(model_list):
+            performances[dataset_name + '_' + model] = performance_list[i]
+
+    def retrieve_performance(model_list, dataset_list):
+        return [[performances[dataset + '_' + model] for dataset in dataset_list] for model in model_list]
+
     for i_data, dataset in enumerate(dataset_list):
         performance_list = get_weighted_performance(
             cfgs, len(all_species_model_list), 
             1, [0], dataset=dataset
         )
-        performances[dataset] = performance_list
+        set_performance(performance_list, all_species_model_list, dataset)
     
     cfgs = experiments.compare_models_multi_session()
-    multi_session_model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', 'MS_AR_Transformer', ]
-    dataset_list = ['celegansflavell', 'celegansflavell_pc', 'zebrafish_pc', 'celegans', 'celegans_pc', 'mice', 'mice_pc', ]
+    multi_session_model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', ]
+    assert len(multi_session_model_list) == len(experiments.multi_session_model_list)
+    dataset_list = experiments.dataset_list
 
     for i_data, dataset in enumerate(dataset_list):
         performance_list = get_weighted_performance(
             cfgs, len(multi_session_model_list), 
             len(dataset_list), [i_data], transpose=True,
         )
-        performances[dataset] += performance_list
+        set_performance(performance_list, multi_session_model_list, dataset)
 
     cfgs = experiments.compare_models_celegans_single_session()
     single_session_model_list = experiments.single_session_model_list
-    performances['celegans'] += get_weighted_performance(
-        cfgs, len(single_session_model_list), 
-        N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS), transpose=True
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list), 
+            N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'celegans'
     )
-    performances['celegans_pc'] += get_weighted_performance(
-        cfgs, len(single_session_model_list),
-        N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS, 2 * N_CELEGANS_SESSIONS), transpose=True
+
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list),
+            N_CELEGANS_SESSIONS * 2, range(N_CELEGANS_SESSIONS, 2 * N_CELEGANS_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'celegans_pc'
     )
 
     cfgs = experiments.compare_models_celegans_flavell_single_session()
-    performances['celegansflavell'] += get_weighted_performance(
-        cfgs, len(single_session_model_list),
-        N_CELEGANS_FLAVELL_SESSIONS, range(N_CELEGANS_FLAVELL_SESSIONS), transpose=True
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list),
+            N_CELEGANS_FLAVELL_SESSIONS, range(N_CELEGANS_FLAVELL_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'celegansflavell'
     )
 
     cfgs = experiments.compare_models_mice_single_session()
-    performances['mice'] += get_weighted_performance(
-        cfgs, len(single_session_model_list),
-        N_MICE_SESSIONS * 2, range(N_MICE_SESSIONS), transpose=True, 
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list),
+            N_MICE_SESSIONS * 2, range(N_MICE_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'mice'
     )
-    performances['mice_pc'] += get_weighted_performance(
-        cfgs, len(single_session_model_list),
-        N_MICE_SESSIONS * 2, range(N_MICE_SESSIONS, 2 * N_MICE_SESSIONS), transpose=True,
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list),
+            N_MICE_SESSIONS * 2, range(N_MICE_SESSIONS, 2 * N_MICE_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'mice_pc'
     )
 
     cfgs = experiments.compare_models_zebrafish_pc_single_session()
-    performances['zebrafish_pc'] += get_weighted_performance(
-        cfgs, len(single_session_model_list),
-        N_ZEBRAFISH_SESSIONS, range(N_ZEBRAFISH_SESSIONS), transpose=True, 
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list),
+            N_ZEBRAFISH_SESSIONS, range(N_ZEBRAFISH_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'zebrafish_pc'
+    )
+    cfgs = experiments.compare_models_zebrafish_ahrens_single_session()
+    set_performance(
+        get_weighted_performance(
+            cfgs, len(single_session_model_list),
+            N_ZEBRAFISH_AHNRENS_SESSIONS, range(N_ZEBRAFISH_AHNRENS_SESSIONS), transpose=True
+        ),
+        single_session_model_list, 'zebrafishahrens_pc'
     )
 
     # compare all models
     all_models = all_species_model_list + multi_session_model_list + single_session_model_list
-    plot_datasets = ['zebrafish_pc', 'celegans', 'celegansflavell', 'mice', 'mice_pc', ]
-    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(all_models))]
+    
+    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegans', 'celegansflavell', 'mice', 'mice_pc', ]
+    plot_models = multi_session_model_list + single_session_model_list
+    performance = retrieve_performance(plot_models, plot_datasets)
+
     plots.grouped_plot(
         performance, group_labels=plot_datasets,
-        bar_labels=all_models, colors=plots.get_model_colors(all_models),
+        bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all',
         fig_size=(15, 5), style='bar',

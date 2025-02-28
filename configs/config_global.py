@@ -11,25 +11,26 @@ ROOT_DIR = osp.dirname(osp.dirname(osp.abspath(__file__)))
 FIG_DIR = osp.join(ROOT_DIR, 'figures')
 DATA_DIR = os.path.join(ROOT_DIR, 'data')
 
-RAW_DIR = os.path.join(DATA_DIR, 'raw')
+ZEBRAFISH_RAW_DIR = os.path.join(DATA_DIR, 'raw_zebrafish')
+ZEBRAFISH_AHRENS_RAW_DIR = os.path.join(DATA_DIR, 'raw_zebrafish_ahrens')
 EXP_TYPES = ['control', 'shocked', 'reshocked', 'ketamine']
-STIM_RAW_DIR = os.path.join(DATA_DIR, 'raw_stim')
-VISUAL_RAW_DIR = os.path.join(DATA_DIR, 'raw_visual')
+ZEBRAFISH_STIM_RAW_DIR = os.path.join(DATA_DIR, 'raw_zebrafish_stim')
 CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_zimmer')
 CELEGANS_FLAVELL_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_flavell')
 MICE_RAW_DIR = os.path.join(DATA_DIR, 'raw_mice')
 MICE_BRAIN_AREAS = ['PPC', 'RSP', 'V1', 'M2']
 
 N_ZEBRAFISH_SESSIONS = 19
+N_ZEBRAFISH_AHNRENS_SESSIONS = 15
 N_CELEGANS_SESSIONS = 5
 N_CELEGANS_FLAVELL_SESSIONS = 40
 N_MICE_SESSIONS = 12
 
 RAW_DATA_SUFFIX = '_CNMF_compressed.h5'
-PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zscored')
-VISUAL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_visual_zscored')
-STIM_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_stim_zscored')
-CELEGANS_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_celegans')
+ZEBRAFISH_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zebrafish')
+ZEBRAFISH_AHRENS_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zebrafish_ahrens')
+ZEBRAFISH_STIM_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_zebrafish_stim')
+CELEGANS_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_celegans_zimmer')
 CELEGANS_FLAVELL_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_celegans_flavell')
 MICE_PROCESSED_DIR = os.path.join(DATA_DIR, 'processed_mice')
 SIM_DIR = osp.join(DATA_DIR, 'simulations')

@@ -69,7 +69,7 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
         )
         assert kwargs.get('num_layers', 1) == 1
     elif rnn_type == 'S4':
-        rnn = models.layers.s4.S4(hidden_size, num_layers=num_layers, **kwargs)
+        rnn = models.S4(hidden_size, num_layers=num_layers, **kwargs)
     else:
         raise NotImplementedError('RNN not implemented')
     return rnn

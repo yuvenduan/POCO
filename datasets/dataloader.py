@@ -72,9 +72,11 @@ def init_single_dataset(dataset_name: str, phase: str, config: DatasetConfig):
 
     if dataset_name == 'zebrafish':
         dataset = datasets.Zebrafish(config, phase=phase)
+    elif dataset_name == 'zebrafishahrens':
+        dataset = datasets.ZebrafishAhrens(config, phase=phase)
     elif dataset_name == 'simulation':
         dataset = datasets.Simulation(config, phase=phase)
-    elif dataset_name == 'zebrafish_stim':
+    elif dataset_name == 'zebrafishstim':
         dataset = datasets.StimZebrafish(config, phase=phase)
     elif dataset_name == 'celegans':
         dataset = datasets.Celegans(config, phase=phase)

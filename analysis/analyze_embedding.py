@@ -11,8 +11,8 @@ from datasets.datasets import get_baseline_performance
 from analysis.plots import grouped_plot, errorbar_plot
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from utils.data_utils import get_exp_names, get_subject_ids
-from configs.config_global import PROCESSED_DIR, SIM_DIR, VISUAL_PROCESSED_DIR
+from utils.data_utils import get_exp_names
+from configs.config_global import ZEBRAFISH_PROCESSED_DIR, SIM_DIR
 
 def pca_reduce(data: np.ndarray) -> np.ndarray:
     return PCA(n_components=2).fit_transform(data)
@@ -66,7 +66,7 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
                 if cfg.session_ids != 'all' and i_exp not in cfg.session_ids:
                     continue
 
-                filename = os.path.join(PROCESSED_DIR, exp_name + '.npz')
+                filename = os.path.join(ZEBRAFISH_PROCESSED_DIR, exp_name + '.npz')
                 fishdata = np.load(filename)
 
                 n_neurons = fishdata['M'].shape[0]

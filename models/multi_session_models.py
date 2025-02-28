@@ -104,6 +104,14 @@ class MultiPaiFilter(MultiSessionSharedWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
         super().__init__(config, single_models.PaiFilter, input_size, linear_proj=False)
 
+class TSMixer(MultiSessionWrapper):
+    def __init__(self, config: NeuralPredictionConfig, input_size):
+        super().__init__(config, single_models.TSMixer, input_size)
+
+class MultiTSMixer(MultiSessionSharedWrapper):
+    def __init__(self, config: NeuralPredictionConfig, input_size):
+        super().__init__(config, single_models.TSMixer, input_size)
+
 class Latent_to_Obs(nn.Module):
 
     def __init__(self, config: NeuralPredictionConfig, input_size):

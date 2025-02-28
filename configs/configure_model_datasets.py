@@ -37,7 +37,7 @@ def configure_dataset(configs: dict):
                 dataset_config.num_workers = config.num_workers
                 dataset_config.pred_length = config.pred_length
                 dataset_config.seq_length = config.seq_length
-                dataset_config.train_data_length = config.train_data_length if hasattr(config, 'train_data_length') else None
+                dataset_config.train_data_length = config.train_data_length if hasattr(config, 'train_data_length') else int(1e9)
                 if session_id is not None:
                     if session_id_2 is not None:
                         dataset_config.session_ids = list(range(int(session_id), int(session_id_2)))
@@ -57,9 +57,21 @@ def configure_dataset(configs: dict):
                         config.mem = max(config.mem, 128)
                     else:
                         raise ValueError(f'Unknown dataset type: {dataset_type}')
+                    
+                elif dataset_name == 'zebrafishahrens':
+                    config.dataset.append('zebrafishahrens')
+                    if dataset_type == 'pc':
+                        dataset_config.pc_dim = 512
+                    elif dataset_type == None:
+                        dataset_config.pc_dim = None
+                        dataset_config.test_set_window_stride = 32
+                        dataset_config.batch_size = 4
+                        config.mem = max(config.mem, 256)
+                    else:
+                        raise ValueError(f'Unknown dataset type: {dataset_type}')
                 
                 elif dataset_name == 'zebrafishstim':
-                    config.dataset.append('zebrafish_stim')
+                    config.dataset.append('zebrafishstim')
                     dataset_config.exp_types = ['control']
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 512
@@ -137,10 +149,10 @@ def configure_models(configs: dict):
                 config.loss_mode = 'autoregressive'
                 config.model_type = 'LatentModel'
                 config.rnn_type = sub_model_type
-                if config.rnn_type == 'CTRNN':
+                if config.rnn_type == 'RNN':
                     config.rnn_type = 'CTRNNCell'
                 elif config.rnn_type[: 5] == 'LRRNN':
-                    config.rnn_rank = int(config.rnn_type[6:])
+                    config.rnn_rank = int(config.rnn_type[5:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
             elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO']:

@@ -9,9 +9,9 @@ import scipy.io as sio
 import analysis.plots as plots
 
 from configs.config_global import \
-    RAW_DIR, EXP_TYPES, PROCESSED_DIR, RAW_DATA_SUFFIX, \
-    VISUAL_PROCESSED_DIR, VISUAL_RAW_DIR, STIM_RAW_DIR, STIM_PROCESSED_DIR, FIG_DIR
-from utils.data_utils import get_exp_names, get_subject_ids, get_stim_exp_names
+    ZEBRAFISH_RAW_DIR, EXP_TYPES, ZEBRAFISH_PROCESSED_DIR, RAW_DATA_SUFFIX, \
+    ZEBRAFISH_STIM_RAW_DIR, ZEBRAFISH_STIM_PROCESSED_DIR, FIG_DIR, ZEBRAFISH_AHRENS_RAW_DIR, ZEBRAFISH_AHRENS_PROCESSED_DIR
+from utils.data_utils import get_exp_names, get_stim_exp_names
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 
@@ -189,9 +189,9 @@ def process_data_matrix(
         data_dict[f'FC_{n_cluster}'] = get_clustered_data(normalized, n_cluster)
     return data_dict
 
-def process_spontaneous_activity():
+def process_zebrafish_activity():
     exp_names = get_exp_names()
-    os.makedirs(PROCESSED_DIR, exist_ok=True)
+    os.makedirs(ZEBRAFISH_PROCESSED_DIR, exist_ok=True)
     normalize_mode = 'zscore'
 
     brain_areas = [ 
@@ -202,8 +202,8 @@ def process_spontaneous_activity():
     for exp_type in EXP_TYPES:
         for exp_name in exp_names[exp_type]:
 
-            filename = os.path.join(RAW_DIR, exp_name + RAW_DATA_SUFFIX)
-            out_filename = os.path.join(PROCESSED_DIR, exp_name)
+            filename = os.path.join(ZEBRAFISH_RAW_DIR, exp_name + RAW_DATA_SUFFIX)
+            out_filename = os.path.join(ZEBRAFISH_PROCESSED_DIR, exp_name)
 
             with h5py.File(filename, "r") as f:
                 print("Keys: %s" % f.keys())
@@ -236,9 +236,9 @@ def process_spontaneous_activity():
                 
                 np.savez(out_filename, **data_dict)
 
-def process_stim_activity():
+def process_zebrafish_stim_activity():
     exp_names = get_stim_exp_names()
-    os.makedirs(STIM_PROCESSED_DIR, exist_ok=True)
+    os.makedirs(ZEBRAFISH_STIM_PROCESSED_DIR, exist_ok=True)
 
     brain_areas = [
         'in_l_LHb', 'in_l_MHb', 'in_l_cerebellum', 'in_l_di', 'in_l_dthal', 'in_l_hind', 'in_l_meso', 'in_l_raphe', 'in_l_tectum', 'in_l_tel', 'in_l_vthal', 
@@ -250,8 +250,8 @@ def process_stim_activity():
     for exp_type in ['control', 'stim']:
         for exp_name in exp_names[exp_type]:
 
-            filename = os.path.join(STIM_RAW_DIR, f'hbstim_{exp_name}_cnmf_.h5')
-            out_filename = os.path.join(STIM_PROCESSED_DIR, exp_name)
+            filename = os.path.join(ZEBRAFISH_STIM_RAW_DIR, f'hbstim_{exp_name}_cnmf_.h5')
+            out_filename = os.path.join(ZEBRAFISH_STIM_PROCESSED_DIR, exp_name)
 
             with h5py.File(filename, "r") as f:
                 print("Keys: %s" % f.keys())
@@ -280,11 +280,12 @@ def process_stim_activity():
                 data_dict.update(return_dict)
                 np.savez(out_filename, **data_dict)
 
-def process_visual_activity():
-    os.makedirs(VISUAL_PROCESSED_DIR, exist_ok=True)
+def process_zebrafish_ahrens_activity():
+    os.makedirs(ZEBRAFISH_AHRENS_PROCESSED_DIR, exist_ok=True)
 
+    count = 0
     for subject_id in range(1, 19):
-        sub_dir = os.path.join(VISUAL_RAW_DIR, f'subject_{subject_id}')
+        sub_dir = os.path.join(ZEBRAFISH_AHRENS_RAW_DIR, f'subject_{subject_id}')
         filename = os.path.join(sub_dir, 'TimeSeries.h5')
         mat_filename = os.path.join(sub_dir, 'data_full.mat')
 
@@ -297,39 +298,24 @@ def process_visual_activity():
         data_dict = {}
         for key in f.keys():
             data_dict[key] = np.array(f[key])
-
-        # print(data_dict['CellResp'].shape, data_dict['CellRespAvr'].shape, data_dict['CellRespZ'].std(axis=0))
+        print(data_dict.keys())
         
         data = sio.loadmat(mat_filename, squeeze_me=True, struct_as_record=False)['data']
 
         p = data.periods
         A = data.Behavior_full_motorseed
         B = data.BehaviorAvr_motorseed
-        print(p, A.shape, B.shape)
 
         activity = data_dict['CellResp'].T
-        try:
-            behavior = data.Behavior_full
-            behavior_motorseed = data.Behavior_full_motorseed
-            eye = data.Eye_full
-            eye_motorseed = data.Eye_full_motorseed
-        except:
-            print(f"Subject {subject_id}: Behavior / Eye not found")
-            continue
-        stim = data.stim_full
+        return_dict = process_data_matrix(
+            activity,
+            'preprocess/zebrafish_ahrens',
+            pc_dim=2048,
+            exp_name=f'subject_{subject_id}'
+        )
+        data_dict = {}
+        data_dict.update(return_dict)
 
-        plot_delta_F(activity, exp_name=f'subject_{subject_id}', fig_dir='visual_preprocess')
-        PC = run_pca(activity, exp_name=f'subject_{subject_id}', fig_dir='visual_preprocess')
-        plot_delta_F(PC, exp_name=f'subject_{subject_id}', fig_dir='visual_preprocess', suffix='_PC')
-
-        out_filename = os.path.join(VISUAL_PROCESSED_DIR, f'subject_{subject_id}')
-        data_dict = {
-            'M': activity,
-            'PC': PC,
-            'behavior': behavior,
-            'behavior_motorseed': behavior_motorseed,
-            'eye': eye,
-            'eye_motorseed': eye_motorseed,
-            'stim': stim,
-        }
+        out_filename = os.path.join(ZEBRAFISH_AHRENS_PROCESSED_DIR, f'{count}.npz')
+        count += 1
         np.savez(out_filename, **data_dict)

@@ -11,6 +11,7 @@ from models.model_utils import get_rnn_from_config
 from models.layers import tcn
 from models.layers.normalizer import RevIN
 from models.layers.autoformer import series_decomp
+import models.layers.tsmixer as tsmixer
 
 class Autoregressive(nn.Module):
     """
@@ -360,5 +361,20 @@ class TexFilter(nn.Module):
         z = x
         z = self.revin_layer(z, 'denorm')
         x = z
+        x = x.permute(1, 0, 2)
+        return x
+
+class TSMixer(tsmixer.TSMixer):
+
+    def __init__(self, configs: NeuralPredictionConfig, input_size):
+        super().__init__(
+            sequence_length=configs.seq_length - configs.pred_length,
+            prediction_length=configs.pred_length,
+            input_channels=input_size,
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.permute(1, 0, 2) # [L, B, D] -> [B, L, D]
+        x = super().forward(x)
         x = x.permute(1, 0, 2)
         return x
