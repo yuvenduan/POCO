@@ -10,7 +10,7 @@ import json
 
 from scipy import signal
 from configs.config_global import CELEGANS_RAW_DIR, CELEGANS_PROCESSED_DIR, CELEGANS_FLAVELL_RAW_DIR, CELEGANS_FLAVELL_PROCESSED_DIR
-from preprocess.preprocess import process_data_matrix
+from .utils import process_data_matrix
 
 def readmat(filename):
     """
@@ -117,57 +117,16 @@ flat_partial = lambda x: x.reshape(x.shape[0],-1)
 ####### Data preprocessing functions #######
 ############################################
 
-def bandpass(traces, f_l, f_h, sampling_freq):
-    """
-    Apply a bandpass filter to the input traces. Note: the input f_l and f_h are angular frequencies. 
-
-    Parameters:
-        traces (np.ndarray): Input traces to be filtered.
-        f_l (float): Lower cutoff frequency in Hz.
-        f_h (float): Upper cutoff frequency in Hz.
-        sampling_freq (float): Sampling frequency in Hz.
-
-    Returns:
-        filtered (np.ndarray): Filtered traces.
-
-    """    
-    cut_off_h = f_h*sampling_freq/2 ## in units of sampling_freq/2
-    cut_off_l= f_l*sampling_freq/2 ## in units of sampling_freq/2
-    #### Note: the input f_l and f_h are angular frequencies. Hence the argument sampling_freq in the function is redundant: since the signal.butter function takes angular frequencies if fs is None.
-    
-    sos = signal.butter(4, [cut_off_l, cut_off_h], 'bandpass', fs=sampling_freq, output='sos')
-    ### filtering the traces forward and backwards
-    filtered = signal.sosfilt(sos, traces)
-    filtered = np.flip(filtered, axis=1)
-    filtered = signal.sosfilt(sos, filtered)
-    filtered = np.flip(filtered, axis=1)
-    return filtered
-
-def preprocess_data(X, fps):
-    """Preprocess the input data by applying bandpass filtering.
-    
-    Args:
-        X: Input data of shape T * n_neurons.
-        fps (float): Frames per second.
-    
-    Returns:
-        numpy.ndarray: Preprocessed data after bandpass filtering.
-    """
-    time = 1 / fps * np.arange(0, X.shape[0])
-    filtered = bandpass(X.T, f_l=1e-10, f_h=0.2, sampling_freq=fps).T
-
-    return time, filtered
-
-def celegans_zimmer_preprocess():
+def celegans_zimmer_preprocess(filter_mode='none'):
+    processed_dir = CELEGANS_PROCESSED_DIR
+    if filter_mode != 'none':
+        processed_dir = osp.join(processed_dir + '_' + filter_mode)
+    os.makedirs(processed_dir, exist_ok=True)
     
     for data_set_no in range(5):
         
         db = Database(data_set_no)
         traces = db.neuron_traces
-        
-        # time, filtered = preprocess_data(traces.T, float(db.fps))
-        # filtered = filtered.T
-
         filtered = traces
         time = np.arange(filtered.shape[1]) / db.fps
         print(f"Data set {data_set_no}: {filtered.shape[0]} neurons, {filtered.shape[1]} time points, fps = {db.fps}")
@@ -179,18 +138,22 @@ def celegans_zimmer_preprocess():
         
         ret = process_data_matrix(
             filtered, 
-            "preprocess/celegans", 
+            f"preprocess/{filter_mode}/celegans", 
             divide_baseline=False, # already dF / F
             normalize_mode='zscore',
             exp_name=f'celegans_{data_set_no}',
-            pc_dim=128
+            pc_dim=128,
+            filter_mode=filter_mode
         )
         save_dict.update(ret)
-        os.makedirs(CELEGANS_PROCESSED_DIR, exist_ok=True)
-        out_filename = osp.join(CELEGANS_PROCESSED_DIR, f'{data_set_no}.npz')
+        out_filename = osp.join(processed_dir, f'{data_set_no}.npz')
         np.savez(out_filename, **save_dict)
 
-def celegans_flavell_preprocess():
+def celegans_flavell_preprocess(filter_mode='none'):
+    processed_dir = CELEGANS_FLAVELL_PROCESSED_DIR
+    if filter_mode != 'none':
+        processed_dir = osp.join(processed_dir + '_' + filter_mode)
+    os.makedirs(processed_dir, exist_ok=True)
 
     worm_idx = 0
     for file in os.listdir(CELEGANS_FLAVELL_RAW_DIR):
@@ -204,11 +167,12 @@ def celegans_flavell_preprocess():
 
             ret = process_data_matrix(
                 activity, 
-                "preprocess/celegans_flavell", 
+                f"preprocess/{filter_mode}/celegans_flavell", 
                 divide_baseline=False, # already dF / F
                 normalize_mode='zscore',
                 exp_name=f'celegans_flavell_{worm_idx}',
-                pc_dim=128
+                pc_dim=128,
+                filter_mode=filter_mode
             )
 
             neuron_names = []
@@ -225,8 +189,7 @@ def celegans_flavell_preprocess():
             print('Neuron labels:', neuron_names)
 
             save_dict.update(ret)
-            os.makedirs(CELEGANS_FLAVELL_PROCESSED_DIR, exist_ok=True)
-            out_filename = osp.join(CELEGANS_FLAVELL_PROCESSED_DIR, f'{worm_idx}.npz')
+            out_filename = osp.join(processed_dir, f'{worm_idx}.npz')
             np.savez(out_filename, **save_dict)
         
         worm_idx += 1

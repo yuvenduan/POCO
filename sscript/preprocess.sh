@@ -4,7 +4,7 @@
 #SBATCH -n 2
 #SBATCH --mem=512G
 #SBATCH -p test
-#SBATCH -e ./sbatch/slurm-%j.out
-#SBATCH -o ./sbatch/slurm-%j.out
+#SBATCH -e ./sbatch/preprocess.out
+#SBATCH -o ./sbatch/preprocess.out
 conda activate metafish
 python run_preprocess.py

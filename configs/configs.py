@@ -39,12 +39,9 @@ class BaseConfig(object):
 
         # if not None, load model from the designated path
         self.load_path = None
-
-        # if overwrite=False and training log is complete, skip training
-        self.overwrite = True
-
-        self.config_mode = 'train'
-        self.training_mode = 'supervised'
+        self.finetuning = False
+        self.freeze_backbone = False
+        self.dataset_filter = None
 
         self.input_shape = None
         self.model_outsize = None
@@ -91,7 +88,6 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.rnn_type = 'LSTM'
         self.num_layers = 1
         self.teacher_forcing = True
-        self.shared_backbone = True
         self.rnn_layernorm = False
 
         # rnn config
@@ -159,8 +155,11 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.decoder_proj_init = 'fan_in'
         self.normalize_input = True # if True, normalize the input to the decoder
         self.mu_std_loss_coef = 0
-        self.mu_std_module_mode = 'combined' # original mean / std; learned mean / std
+        self.mu_module_mode = 'combined' # 'last', 'original', 'learned', 'none', ...
+        self.std_module_mode = 'combined' # 'original', 'learned', 'learned_exp', 'none', ..., see models/layers/normalizer.py
         self.mu_std_separate_projs = False
+        self.conditioning = 'none' # or 'mlp'
+        self.conditioning_dim = 128
 
         # poyo config
         self.poyo_num_latents = 8
@@ -172,6 +171,9 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.decoder_num_heads = 16
         self.poyo_unit_dropout = 0
         self.rotary_attention_tmax = 100
+
+        # for filter net
+        self.filter_embed_size = 128
 
         self.do_analysis = False
 
@@ -217,6 +219,7 @@ class DatasetConfig:
         # or 'average' (in which case we will average the neural activity within each brain region)
         self.brain_regions = 'all' 
         self.exp_types = EXP_TYPES
+        self.filter_type = 'none' # 'lowpass', 'highpass', 'bandpass', 'none'
 
     def to_dict(self):
         return {key: getattr(self, key) for key in self.__dict__}
@@ -244,7 +247,7 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.dataset = 'zebrafish' # or a list of dataset names
         self.dataset_config = {}
 
-        self.max_batch = 20000
+        self.max_batch = 10000
         self.test_batch = 100000 # test on all available data 
         self.mem = 32
         self.do_analysis = False

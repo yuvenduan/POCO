@@ -19,3 +19,5 @@ dependencies:
   - conda-forge::pytorch-lightning
   - pip:
     - mat73
+    - tensorstore
+    - git+https://github.com/google-research/zapbench.git#egg=zapbench

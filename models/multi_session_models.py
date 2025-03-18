@@ -20,7 +20,7 @@ from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 from models.model_utils import get_rnn, get_pretrained_model, get_rnn_from_config
 from models.TOTEM.models.decode import XcodeYtimeDecoder
 from models.poyo.poyo import POYO
-from models.layers.normalizer import MuStdWrapper, BatchedLinear
+from models.layers.normalizer import MuStdWrapper, BatchedLinear, RevIN
 from configs.config_global import DEVICE
 
 class MultiSessionWrapper(nn.Module):
@@ -88,18 +88,6 @@ class MultiDLinear(MultiSessionSharedWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
         super().__init__(config, single_models.DLinear, input_size, linear_proj=False)
 
-class TexFilter(MultiSessionWrapper):
-    def __init__(self, config: NeuralPredictionConfig, input_size):
-        super().__init__(config, single_models.TexFilter, input_size)
-
-class MultiTexFilter(MultiSessionSharedWrapper):
-    def __init__(self, config: NeuralPredictionConfig, input_size):
-        super().__init__(config, single_models.TexFilter, input_size, linear_proj=False)
-
-class PaiFilter(MultiSessionWrapper):
-    def __init__(self, config: NeuralPredictionConfig, input_size):
-        super().__init__(config, single_models.PaiFilter, input_size)
-
 class MultiPaiFilter(MultiSessionSharedWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
         super().__init__(config, single_models.PaiFilter, input_size, linear_proj=False)
@@ -111,6 +99,182 @@ class TSMixer(MultiSessionWrapper):
 class MultiTSMixer(MultiSessionSharedWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
         super().__init__(config, single_models.TSMixer, input_size)
+
+class PaiFilter(nn.Module):
+
+    def __init__(self, configs: NeuralPredictionConfig, input_size):
+        super().__init__()
+        input_size = list(itertools.chain(*input_size))
+        self.seq_len = configs.seq_length - configs.pred_length
+        self.pred_len = configs.pred_length
+        self.scale = 0.02
+        self.revin_layer = nn.ModuleList([RevIN(size, affine=True, subtract_last=False) for size in input_size])
+
+        self.embed_size = self.seq_len
+        self.hidden_size = configs.hidden_size
+        
+        self.w = nn.Parameter(self.scale * torch.randn(1, self.embed_size))
+
+        self.fc = nn.Sequential(
+            nn.Linear(self.embed_size, self.hidden_size),
+            nn.LeakyReLU(),
+            nn.Linear(self.hidden_size, self.pred_len)
+        )
+
+    def circular_convolution(self, x, w):
+        x = torch.fft.rfft(x, dim=2, norm='ortho')
+        w = torch.fft.rfft(w, dim=1, norm='ortho')
+        y = x * w
+        out = torch.fft.irfft(y, n=self.embed_size, dim=2, norm="ortho")
+        return out
+
+    def forward(self, x_list):
+        pred_list = []
+
+        for revin_layer, x in zip(self.revin_layer, x_list):
+            x = x.permute(1, 0, 2) # L, B, D -> B, L, D
+
+            if x.shape[0] == 0:
+                pred_list.append(torch.zeros(0, x.shape[1], self.pred_len, device=x.device))
+                continue
+
+            z = x
+            z = revin_layer(z, 'norm')
+            x = z
+
+            x = x.permute(0, 2, 1)
+            x = self.circular_convolution(x, self.w.to(x.device))  # B, N, D
+
+            x = self.fc(x)
+            x = x.permute(0, 2, 1)
+
+            z = x
+            z = revin_layer(z, 'denorm')
+            x = z
+
+            x = x.permute(1, 0, 2) # B, L, D -> L, B, D
+            pred_list.append(x)
+
+        return pred_list
+
+class TexFilter(nn.Module):
+
+    def __init__(self, configs: NeuralPredictionConfig, input_size):
+        super().__init__()
+        input_size = list(itertools.chain(*input_size))
+        self.seq_len = configs.seq_length - configs.pred_length
+        self.pred_len = configs.pred_length
+        self.embed_size = configs.filter_embed_size
+        self.hidden_size = configs.hidden_size
+        self.dropout = configs.dropout
+        self.band_width = self.seq_len
+        self.scale = 0.02
+        self.sparsity_threshold = 0.01
+
+        self.revin_layer = nn.ModuleList([RevIN(size, affine=True, subtract_last=False) for size in input_size])
+        self.embedding = nn.Linear(self.seq_len, self.embed_size)
+        self.token = nn.Conv1d(in_channels=self.seq_len, out_channels=self.embed_size, kernel_size=(1,))
+
+        self.w = nn.Parameter(self.scale * torch.randn(2, self.embed_size))
+        self.w1 = nn.Parameter(self.scale * torch.randn(2, self.embed_size))
+
+        self.rb1 = nn.Parameter(self.scale * torch.randn(self.embed_size))
+        self.ib1 = nn.Parameter(self.scale * torch.randn(self.embed_size))
+
+        self.rb2 = nn.Parameter(self.scale * torch.randn(self.embed_size))
+        self.ib2 = nn.Parameter(self.scale * torch.randn(self.embed_size))
+
+        self.fc = nn.Sequential(
+            nn.Linear(self.embed_size, self.hidden_size),
+            nn.LeakyReLU(),
+            nn.Linear(self.hidden_size, self.embed_size)
+        )
+
+        self.output = nn.Linear(self.embed_size, self.pred_len)
+        self.layernorm = nn.LayerNorm(self.embed_size)
+        self.layernorm1 = nn.LayerNorm(self.embed_size)
+        self.dropout = nn.Dropout(self.dropout)
+
+    def tokenEmbed(self, x):
+        x = self.token(x)
+        return x
+
+    def texfilter(self, x):
+        B, N, _ = x.shape
+        o1_real = torch.zeros([B, N // 2 + 1, self.embed_size],
+                              device=x.device)
+        o1_imag = torch.zeros([B, N // 2 + 1, self.embed_size],
+                              device=x.device)
+
+        o2_real = torch.zeros([B, N // 2 + 1, self.embed_size],
+                              device=x.device)
+        o2_imag = torch.zeros([B, N // 2 + 1, self.embed_size],
+                              device=x.device)
+
+        o1_real = F.relu(
+            torch.einsum('bid,d->bid', x.real, self.w[0]) - \
+            torch.einsum('bid,d->bid', x.imag, self.w[1]) + \
+            self.rb1
+        )
+
+        o1_imag = F.relu(
+            torch.einsum('bid,d->bid', x.imag, self.w[0]) + \
+            torch.einsum('bid,d->bid', x.real, self.w[1]) + \
+            self.ib1
+        )
+
+        o2_real = (
+                torch.einsum('bid,d->bid', o1_real, self.w1[0]) - \
+                torch.einsum('bid,d->bid', o1_imag, self.w1[1]) + \
+                self.rb2
+        )
+
+        o2_imag = (
+                torch.einsum('bid,d->bid', o1_imag, self.w1[0]) + \
+                torch.einsum('bid,d->bid', o1_real, self.w1[1]) + \
+                self.ib2
+        )
+
+        y = torch.stack([o2_real, o2_imag], dim=-1)
+        y = F.softshrink(y, lambd=self.sparsity_threshold)
+        y = torch.view_as_complex(y)
+        return y
+
+    def forward(self, x_list):
+        pred_list = []
+        for revin_layer, x in zip(self.revin_layer, x_list):
+            x = x.permute(1, 0, 2)
+            # x: [Batch, Input length, Channel]
+            if x.shape[0] == 0:
+                pred_list.append(torch.zeros(0, x.shape[1], self.pred_len, device=x.device))
+                continue
+
+            B, L, N = x.shape
+            z = x
+            z = revin_layer(z, 'norm')
+            x = z
+
+            x = x.permute(0, 2, 1)
+            x = self.embedding(x)  # B, N, D
+            x = self.layernorm(x)
+            x = torch.fft.rfft(x, dim=1, norm='ortho')
+
+            weight = self.texfilter(x)
+            x = x * weight
+            x = torch.fft.irfft(x, n=N, dim=1, norm="ortho")
+            x = self.layernorm1(x)
+            x = self.dropout(x)
+            x = self.fc(x)
+            x = self.output(x)
+            x = x.permute(0, 2, 1)
+
+            z = x
+            z = revin_layer(z, 'denorm')
+            x = z
+            x = x.permute(1, 0, 2)
+            pred_list.append(x)
+
+        return pred_list
 
 class Latent_to_Obs(nn.Module):
 
@@ -160,7 +324,6 @@ class LatentModel(nn.Module):
         self.proj = Latent_to_Obs(config, input_size)
         assert config.num_layers == 1, "Only support single layer for now"
         self.rnn = get_rnn_from_config(config, rnn_in_size=None)
-        self.shared_backbone = config.shared_backbone
         self.out_sizes = input_size
         self.teacher_forcing = config.teacher_forcing
         self.train_tf_interval = config.tf_interval
@@ -223,10 +386,6 @@ class Decoder(nn.Module):
         input_size = list(itertools.chain(*input_size))
         self.unit_types = list(itertools.chain(*unit_types))
         self.unit_types = [torch.from_numpy(unit_type).to(DEVICE) for unit_type in self.unit_types]
-
-        if config.circular_conv:
-            self.w = nn.Parameter(0.02 * torch.randn(1, self.Tin))
-        self.circular_conv = config.circular_conv
 
         if config.tokenizer_type == 'vqvae':
             assert config.tokenizer_dir is not None, "Pre-trained tokenizer dir must be provided for vqvae"
@@ -302,19 +461,32 @@ class Decoder(nn.Module):
         if config.decoder_type == 'POYO' and poyo_query_mode == 'multi':
             self.linear_out_size = 1
 
-        if not self.separate_projs:
-            self.proj = nn.Linear(self.embedding_dim, self.linear_out_size)
+        self.conditioning = config.conditioning
+        if config.conditioning == 'mlp':
+            self.in_proj = nn.Sequential(nn.Linear(self.Tin, config.conditioning_dim), nn.ReLU())
+            
+            self.conditioning_alpha = nn.Linear(self.embedding_dim, config.conditioning_dim)
+            self.conditioning_beta = nn.Linear(self.embedding_dim, config.conditioning_dim)
+            
+            # init as zeros
+            self.conditioning_alpha.weight.data.zero_()
+            self.conditioning_alpha.bias.data.zero_()
+            self.conditioning_beta.weight.data.zero_()
+            self.conditioning_beta.bias.data.zero_()
+
+            self.out_proj = nn.Linear(config.conditioning_dim, self.linear_out_size)
+            assert not self.separate_projs, "Separate projs not supported for MLP conditioning"
+            assert self.linear_out_size == config.pred_length, "Not implemented for now"
+            assert self.embedding_length == 1, "Not implemented for now"
+        elif config.conditioning == 'none':
+            if not self.separate_projs:
+                self.proj = nn.Linear(self.embedding_dim, self.linear_out_size)
+            else:
+                self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in input_size])
         else:
-            self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in input_size])
+            raise NotImplementedError
 
         self.normalizer = MuStdWrapper(config, input_size)
-
-    def circular_convolution(self, x, w):
-        x = torch.fft.rfft(x, dim=1, norm='ortho')
-        w = torch.fft.rfft(w, dim=1, norm='ortho')
-        y = x * w
-        out = torch.fft.irfft(y, n=self.Tin, dim=1, norm="ortho")
-        return out
         
     def forward(self, x, unit_indices=None, unit_timestamps=None):
         """
@@ -324,19 +496,18 @@ class Decoder(nn.Module):
 
         bsz = [xx.size(1) for xx in x]
         L = x[0].size(0)
+        x_list = self.normalizer.normalize(x, concat_output=False) # [L, B, D]
         x = self.normalizer.normalize(x, concat_output=True) # sum(B * D), L
-        pred_step = self.pred_step
 
-        if self.circular_conv:
-            x = self.circular_convolution(x, self.w)
+        pred_step = self.pred_step
 
         # Tokenize the input sequence
         if self.tokenizer_type == 'vqvae':
             with torch.no_grad():
                 out = self.tokenizer.encode(x) # out: sum(B * D), TC, E
         elif self.tokenizer_type == 'cnn':
-            x = x.unsqueeze(1)
-            out = self.tokenizer(x) # out: sum(B * D), C, TC
+            out = x.unsqueeze(1)
+            out = self.tokenizer(out) # out: sum(B * D), C, TC
             out = out.permute(0, 2, 1) # out: sum(B * D), TC, C
         elif self.tokenizer_type == 'none':
             out = x.reshape(x.shape[0], self.TC, L // self.TC) # out: sum(B * D), TC, E
@@ -385,18 +556,19 @@ class Decoder(nn.Module):
         # partition embed to a list of tensors, each of shape (B, D, 1, embedding_dim)
         split_size = [b * d * self.embedding_length for b, d in zip(bsz, d_list)]
         embed = torch.split(embed, split_size, dim=0)
-        embed = [xx.reshape(b, d, self.embedding_length, self.embedding_dim) for xx, b, d in zip(embed, bsz, d_list)]
+        embed = [xx.reshape(b, d, self.embedding_length, self.embedding_dim) for xx, b, d in zip(embed, bsz, d_list)] # (B, D, 1, E)
 
         preds = []
-        for i, (e, d) in enumerate(zip(embed, self.input_size)):
+        for i, (e, d, input) in enumerate(zip(embed, self.input_size, x_list)):
             if e.shape[1] < d:
                 assert e.shape[1] == 1
                 e = e.repeat(1, d, 1, 1)
 
-            if self.separate_projs:
-                proj = self.proj[i]
-            else:
-                proj = self.proj
+            if self.conditioning == 'none':
+                if self.separate_projs:
+                    proj = self.proj[i]
+                else:
+                    proj = self.proj
             
             if e.shape[2] > 1:
                 b = e.shape[0]
@@ -406,10 +578,30 @@ class Decoder(nn.Module):
                 pred: torch.Tensor = proj(e) # B * pred_length, D, 1
                 pred = pred.reshape(b, pred_step, d).permute(0, 2, 1) # B, D, pred_length
             else:
-                pred: torch.Tensor = proj(e.squeeze(2)) # B, D, pred_length
+                if self.conditioning == 'mlp':
+                    alpha = self.conditioning_alpha(e.squeeze(2)) # B, D, cond_dim
+                    beta = self.conditioning_beta(e.squeeze(2)) # B, D, cond_dim
+                    input = input.permute(1, 2, 0) # B, D, L
+                    weights = self.in_proj(input) * alpha + beta # B, D, cond_dim
+                    pred = self.out_proj(weights) # B, D, pred_length
+                elif self.conditioning == 'none':
+                    pred: torch.Tensor = proj(e.squeeze(2)) # B, D, pred_length
+                else:
+                    raise ValueError(f"Unknown conditioning mode {self.conditioning}")
             assert pred.shape[2] == pred_step 
             
             preds.append(pred.permute(2, 0, 1))
 
         preds = self.normalizer.unnormalize(preds)
         return preds
+    
+    def load_pretrained(self, state_dict):
+        own_state = self.state_dict()
+
+        # copy the pretrained weights to the model
+        for name, param in state_dict.items():
+            if name in own_state and param.shape == own_state[name].shape:
+                own_state[name].copy_(param)
+
+        if hasattr(self.decoder, 'reset_for_finetuning'):
+            self.decoder.reset_for_finetuning()

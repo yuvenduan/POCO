@@ -31,7 +31,6 @@ class Autoregressive(nn.Module):
         self.rnn = get_rnn_from_config(config, rnn_in_size=config.hidden_size)
         self.pred_step = config.pred_length
 
-        self.shared_backbone = config.shared_backbone
         self.out_proj = nn.Sequential(
             nn.LayerNorm(config.hidden_size) if config.rnn_layernorm else nn.Identity(), 
             nn.Linear(config.hidden_size, input_size) if not omit_linear else nn.Identity()
@@ -336,7 +335,7 @@ class TexFilter(nn.Module):
         y = torch.view_as_complex(y)
         return y
 
-    def forward(self, x, x_mark_enc, x_dec, x_mark_dec, mask=None):
+    def forward(self, x):
         x = x.permute(1, 0, 2)
         # x: [Batch, Input length, Channel]
         B, L, N = x.shape

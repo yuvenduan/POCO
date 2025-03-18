@@ -79,7 +79,7 @@ def save_config(config, save_path, also_save_as_text=True, show_message=True):
             try:
                 exp_data = pd.read_table(file_path)
                 # TODO: check the last line of the file
-                if len(exp_data.index) == config.max_batch // config.log_every:
+                if len(exp_data.index) >= config.max_batch // config.log_every:
                     if show_message:
                         logging.warning('Save dir {} already exists and training is already done. '.format(save_path)
                                 + 'Skipped. (to overwrite use -o)')

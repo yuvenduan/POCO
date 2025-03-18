@@ -38,8 +38,15 @@ def configure_dataset(configs: dict):
                 dataset_config.pred_length = config.pred_length
                 dataset_config.seq_length = config.seq_length
                 dataset_config.train_data_length = config.train_data_length if hasattr(config, 'train_data_length') else int(1e9)
+                if config.dataset_filter is not None:
+                    dataset_config.filter_type = config.dataset_filter
+
                 if session_id is not None:
-                    if session_id_2 is not None:
+                    if session_id == '*':
+                        assert dataset_name == 'zebrafish'
+                        dataset_config.session_ids = [0, 1, 2, 3, 5, 6, 7, 8, 10, 11, 12, 13, 15, 16, 17] 
+                        # all sessions except 4, 9, 14, 18; left out fore test fine-tuning
+                    elif session_id_2 is not None:
                         dataset_config.session_ids = list(range(int(session_id), int(session_id_2)))
                     else:
                         dataset_config.session_ids = [int(session_id)]
@@ -58,8 +65,8 @@ def configure_dataset(configs: dict):
                     else:
                         raise ValueError(f'Unknown dataset type: {dataset_type}')
                     
-                elif dataset_name == 'zebrafishahrens':
-                    config.dataset.append('zebrafishahrens')
+                elif dataset_name == 'zebrafishahrens' or dataset_name == 'zebrafishjain':
+                    config.dataset.append(dataset_name)
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 512
                     elif dataset_type == None:

@@ -2,7 +2,7 @@
 Zebrafish dataset for neural prediction
 """
 
-__all__ = ['Zebrafish', 'ZebrafishAhrens', 'Simulation', 'StimZebrafish', 'Celegans', 'CelegansFlavell', 'Mice', 'get_baseline_performance']
+__all__ = ['Zebrafish', 'ZebrafishAhrens', 'ZebrafishJain', 'Simulation', 'StimZebrafish', 'Celegans', 'CelegansFlavell', 'Mice', 'get_baseline_performance']
 
 import torch
 import torch.utils.data as tud
@@ -15,7 +15,7 @@ from configs.configs import DatasetConfig
 from configs.config_global import \
     ZEBRAFISH_PROCESSED_DIR, ZEBRAFISH_STIM_PROCESSED_DIR, ZEBRAFISH_AHRENS_PROCESSED_DIR, N_ZEBRAFISH_AHNRENS_SESSIONS, \
     CELEGANS_PROCESSED_DIR, N_CELEGANS_SESSIONS, CELEGANS_FLAVELL_PROCESSED_DIR, N_CELEGANS_FLAVELL_SESSIONS, \
-    SIM_DIR, MICE_PROCESSED_DIR
+    SIM_DIR, MICE_PROCESSED_DIR, ZEBRAFISH_JAIN_PROCESSED_DIR
 from utils.data_utils import get_exp_names, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
@@ -415,6 +415,10 @@ class StimZebrafish(Zebrafish):
         all_unit_types = []
         n_sessions = 0
 
+        data_dir = ZEBRAFISH_STIM_PROCESSED_DIR
+        if config.filter_type != 'none':
+            data_dir = data_dir + f'_{config.filter_type}'
+
         for exp_type in config.exp_types:
             for i_exp, exp_name in enumerate(exp_names[exp_type]):
                 n_sessions += 1
@@ -423,7 +427,7 @@ class StimZebrafish(Zebrafish):
                 if config.animal_ids != None and i_exp not in config.animal_ids:
                     continue
 
-                filename = os.path.join(ZEBRAFISH_STIM_PROCESSED_DIR, exp_name + '.npz')
+                filename = os.path.join(data_dir, exp_name + '.npz')
                 all_activity, unit_type = self.get_activity_unit_id(filename, config)
                 all_activity = self.downsample(all_activity)
                 all_activities.append(all_activity)
@@ -453,6 +457,10 @@ class ZebrafishAhrens(Zebrafish):
         all_unit_types = []
         n_sessions = 0
 
+        data_dir = ZEBRAFISH_AHRENS_PROCESSED_DIR
+        if config.filter_type != 'none':
+            data_dir = data_dir + f'_{config.filter_type}'
+
         for i in range(N_ZEBRAFISH_AHNRENS_SESSIONS):
             n_sessions += 1
             if config.session_ids != None and n_sessions - 1 not in config.session_ids:
@@ -460,7 +468,7 @@ class ZebrafishAhrens(Zebrafish):
             if config.animal_ids != None and i not in config.animal_ids:
                 continue
 
-            filename = os.path.join(ZEBRAFISH_AHRENS_PROCESSED_DIR, f'{i}.npz')
+            filename = os.path.join(data_dir, f'{i}.npz')
             all_activity, unit_type = self.get_activity_unit_id(filename, config)
             all_activity = self.downsample(all_activity)
             all_activities.append(all_activity)
@@ -468,6 +476,32 @@ class ZebrafishAhrens(Zebrafish):
 
         return all_activities, all_unit_types
     
+class ZebrafishJain(ZebrafishAhrens):
+
+    def load_all_activities(self, config):
+        all_activities = []
+        all_unit_types = []
+        n_sessions = 0
+
+        data_dir = ZEBRAFISH_JAIN_PROCESSED_DIR
+        if config.filter_type != 'none':
+            data_dir = data_dir + f'_{config.filter_type}'
+
+        for i in range(1):
+            n_sessions += 1
+            if config.session_ids != None and n_sessions - 1 not in config.session_ids:
+                continue
+            if config.animal_ids != None and i not in config.animal_ids:
+                continue
+
+            filename = os.path.join(data_dir, f'{i}.npz')
+            all_activity, unit_type = self.get_activity_unit_id(filename, config)
+            all_activity = self.downsample(all_activity)
+            all_activities.append(all_activity)
+            all_unit_types.append(unit_type)
+
+        return all_activities, all_unit_types
+
 class Celegans(NeuralDataset):
 
     data_dir = CELEGANS_PROCESSED_DIR
@@ -495,9 +529,13 @@ class Celegans(NeuralDataset):
         all_activities = []
         all_unit_types = []
 
+        data_dir = self.data_dir
+        if config.filter_type != 'none':
+            data_dir = data_dir + f'_{config.filter_type}'
+
         all_neuron_names = []
         for i in range(self.n_sessions):
-            filename = os.path.join(self.data_dir, f'{i}.npz')
+            filename = os.path.join(data_dir, f'{i}.npz')
             with np.load(filename) as data:
                 for name in data['neuron_names']:
                     if name[0] >= 'A' and name[0] <= 'Z' and name not in all_neuron_names:
@@ -509,7 +547,7 @@ class Celegans(NeuralDataset):
                 continue
             if config.animal_ids != None and idx not in config.animal_ids:
                 continue
-            filename = os.path.join(self.data_dir, f'{idx}.npz')
+            filename = os.path.join(data_dir, f'{idx}.npz')
 
             all_activity, unit_type = self.get_activity_unit_id(filename, config)
             all_activity = self.downsample(all_activity)
@@ -546,6 +584,10 @@ class Mice(Celegans):
         all_sessions = get_mice_sessions()
         n_sessions = 0
 
+        data_dir = MICE_PROCESSED_DIR
+        if config.filter_type != 'none':
+            data_dir = data_dir + f'_{config.filter_type}'
+
         for idx, (mouse, sessions) in enumerate(all_sessions.items()):
             for session in sessions:
                 n_sessions += 1
@@ -554,7 +596,7 @@ class Mice(Celegans):
                 if config.animal_ids != None and idx not in config.animal_ids:
                     continue
 
-                filename = os.path.join(MICE_PROCESSED_DIR, f'{mouse}_{session}.npz')
+                filename = os.path.join(data_dir, f'{mouse}_{session}.npz')
                 activity, unit_type = self.get_activity_unit_id(filename, config)
                 activity = self.downsample(activity)
                 all_activities.append(activity)
@@ -640,6 +682,8 @@ def get_baseline_performance(config: DatasetConfig, phase='train'):
         dataset = StimZebrafish(config, phase=phase)
     elif config.dataset == 'zebrafishahrens':
         dataset = ZebrafishAhrens(config, phase=phase)
+    elif config.dataset == 'zebrafishjain':
+        dataset = ZebrafishJain(config, phase=phase)
     elif config.dataset == 'celegans':
         dataset = Celegans(config, phase=phase)
     elif config.dataset == 'celegansflavell':

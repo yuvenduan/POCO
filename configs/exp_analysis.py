@@ -75,8 +75,11 @@ def get_performance(
         if not osp.exists(file_path):
             print(f"File {file_path} does not exist", flush=True)
             continue
-        exp_data = pd.read_table(file_path)
-        performance.append(exp_data[key].iloc[-1])
+        try:
+            exp_data = pd.read_table(file_path)
+            performance.append(exp_data[key].iloc[-1])
+        except:
+            print("Incomplete data:", cfg.save_path)
 
     return performance
 
@@ -224,9 +227,9 @@ def compare_param_analysis(
     """
     For each model, plot the best test loss vs. the parameter
 
-    :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations
-        The list should be of length len(mode_list) * len(model_list) * len(param_list)
-        If transpose is True, the list should be of length len(mode_list) * len(param_list) * len(model_list)
+    :param cfgs: a dictionary of configurations, each key corresponds to a seed, and each value is a list of configurations. 
+        The list should be of len(mode_list) * len(model_list) * len(param_list), flattened from (len(mode_list), len(model_list), len(param_list). 
+        If transpose is True, the list should be flattened from (len(mode_list), len(param_list), len(model_list)). 
     :param param_list: a list of parameters to compare, this will be the x-axis of the plot
     :param model_list: the list of models to compare, this will become legend of the plot
     :param param_name: the name of the parameter, this will be the x-axis label of the plot
@@ -308,8 +311,8 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
     """
     Get the weighted average performance from multiple experiments (weighted by the size of test set, or just average)
     
-    :param cfgs: a dictionary of lists, each key corresponds to a seed, each list has length n_models * n_exps.
-        If transpose is True, the list should be of length n_exps * n_models
+    :param cfgs: a dictionary of lists, each key corresponds to a seed, each list has length n_models * n_exps (flattened from (n_models, n_exps)).
+        If transpose is True, the list should be flattened from (n_exps, n_models)
     :param n_models: the number of models to compare
     :param n_exps: the number of experiments
     :param exp_list: a list of experiments to take the weighted average, each element in the list is a integer in [0, n_exps)
@@ -360,11 +363,13 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
 
             sum_weights += weight[0]
 
+        if valid_seeds == 0:
+            print("No valid seeds for", i, "model", cfgs[0][i * n_exps].model_label, "returning zeros")
+            performances.append([0])
+            continue
+
         total = [x / sum_weights for x in total]
         performances.append(total[: valid_seeds])
-
-        if valid_seeds == 0:
-            print("No valid seeds for", i, "model", cfgs[0][i * n_exps].model_label)
 
     return performances
 
@@ -378,12 +383,21 @@ def poyo_compare_compression_factor_analysis():
         transpose=True
     )
 
-def poyo_compare_model_size_analysis():
-    cfgs = experiments.poyo_compare_hidden_size()
+def compare_context_window_length_analysis():
+    cfgs = experiments.compare_context_window_length()
     compare_param_analysis(
-        cfgs, [32, 128, 256, 512, 768, 1024, 1280, 1536, ],
-        model_list=['POYO', ],
-        mode_list=['celegans', 'zebrafish', 'mice', 'zebrafish_pc', 'celegans_pc', 'mice_pc', ],
+        cfgs, [2, 4, 16, 48],
+        model_list=['POYO', 'Linear', 'MLP'],
+        mode_list=experiments.dataset_list,
+        param_name='context window',
+    )
+
+def compare_model_size_analysis():
+    cfgs = experiments.compare_hidden_size()
+    compare_param_analysis(
+        cfgs, [32, 128, 256, 512, 1024, 1536, ],
+        model_list=['MLP', 'POYO', ],
+        mode_list=experiments.dataset_list,
         param_name='hidden size',
     )
 
@@ -508,22 +522,55 @@ def compare_models_multi_species_analysis():
         model_list=model_list,
     )
 
-def compare_models_analysis():
-    # compare single session models & multi session models
-    cfgs = experiments.compare_models_multi_species()
-    all_species_model_list = ['All_POYO', 'All_Linear']
-    performances = {}
-    dataset_list = [
-        'zebrafish', 'celegans', 'celegansflavell', 'mice', 
-        'zebrafish_pc', 'celegans_pc', 'celegansflavell_pc', 'mice_pc',
-    ]
+def compare_dataset_filter_analysis():
+    cfgs = experiments.compare_dataset_filter()
+    filter_types = ['lowpass', 'highpass', 'bandpass', 'none']
+    n_exp = len(experiments.dataset_list)
+    model_list = experiments.multi_session_model_list
 
+    for i, dataset in enumerate(experiments.dataset_list):
+        performance = {}
+        for j, filter_type in enumerate(filter_types):
+            performance[filter_type] = get_weighted_performance(
+                cfgs, len(model_list), 4 * n_exp,  [i + j * n_exp], transpose=True
+            )
+
+        plot_datasets = filter_types
+        performance = [[performance[filter_type][i] for filter_type in filter_types] for i in range(len(model_list))]
+
+        plots.grouped_plot(
+            performance, group_labels=plot_datasets,
+            bar_labels=model_list, colors=plots.get_model_colors(model_list),
+            x_label='Filter Type', y_label='Prediction Score',
+            ylim=[0, 0.7], save_dir='compare_dataset_filter', fig_name=f'compare_dataset_filter_{dataset}',
+            fig_size=(8, 4), style='bar', title='Compare Filters for Dataset: ' + dataset,
+            legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+        )
+
+def compare_models_analysis():
+    performances = {}
     def set_performance(performance_list, model_list, dataset_name):
         for i, model in enumerate(model_list):
             performances[dataset_name + '_' + model] = performance_list[i]
 
     def retrieve_performance(model_list, dataset_list):
         return [[performances[dataset + '_' + model] for dataset in dataset_list] for model in model_list]
+
+    zebrafish_model_list = ['3D_POYO', '2D_POYO']
+    cfgs = experiments.zebrafish_multi_datasets()
+
+    for dataset in ['zebrafish_pc', 'zebrafishahrens_pc']:
+        performance_list = get_weighted_performance(
+            cfgs, len(zebrafish_model_list), 1, [0], transpose=True, dataset=dataset
+        )
+        set_performance(performance_list, zebrafish_model_list, dataset)
+
+    cfgs = experiments.compare_models_multi_species()
+    all_species_model_list = ['All_POYO', 'All_Linear']
+    dataset_list = [
+        'zebrafish', 'celegans', 'celegansflavell', 'mice', 
+        'zebrafish_pc', 'celegans_pc', 'celegansflavell_pc', 'mice_pc',
+    ]
 
     for i_data, dataset in enumerate(dataset_list):
         performance_list = get_weighted_performance(
@@ -533,7 +580,7 @@ def compare_models_analysis():
         set_performance(performance_list, all_species_model_list, dataset)
     
     cfgs = experiments.compare_models_multi_session()
-    multi_session_model_list = ['MS_POYO', 'MS_Linear', 'MS_Latent_PLRNN', ]
+    multi_session_model_list = ['MS_' + model_name.replace('Multi', '') for model_name in experiments.multi_session_model_list]
     assert len(multi_session_model_list) == len(experiments.multi_session_model_list)
     dataset_list = experiments.dataset_list
 
@@ -603,9 +650,6 @@ def compare_models_analysis():
         ),
         single_session_model_list, 'zebrafishahrens_pc'
     )
-
-    # compare all models
-    all_models = all_species_model_list + multi_session_model_list + single_session_model_list
     
     plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegans', 'celegansflavell', 'mice', 'mice_pc', ]
     plot_models = multi_session_model_list + single_session_model_list
@@ -616,7 +660,69 @@ def compare_models_analysis():
         bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all',
+        fig_size=(18, 6), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+    # zebrafish only
+    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', ]
+    plot_models = zebrafish_model_list + ['MS_POYO', 'POYO', 'Linear', 'TexFilter']
+    performance = retrieve_performance(plot_models, plot_datasets)
+
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_poyo_zebrafish',
+        fig_size=(8, 6), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegansflavell', 'mice']
+    plot_models = ['MS_POYO', 'POYO'] + multi_session_model_list[1: ] + single_session_model_list[1: ]
+    performance = retrieve_performance(plot_models, plot_datasets)
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='compare_models_all', fig_name='selected',
+        fig_size=(12, 6), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+    return
+
+    plot_models = multi_session_model_list
+    performance = retrieve_performance(plot_models, plot_datasets)
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all_multi_session',
         fig_size=(15, 5), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+def compare_models_zebrafish_single_neuron_analysis():
+    cfgs = experiments.compare_models_zebrafish_single_neuron()
+    model_list = experiments.single_neuron_model_list
+    dataset_list = experiments.large_dataset_list
+    performances = {}
+
+    for i_data, dataset in enumerate(dataset_list):
+        performance_list = get_weighted_performance(
+            cfgs, len(model_list), len(dataset_list), [i_data], transpose=True,
+        )
+        performances[dataset] = performance_list
+
+    plot_datasets = dataset_list
+    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=model_list, colors=plots.get_model_colors(['MS_' + model for model in model_list]),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_zebrafish_single_neuron',
+        fig_size=(6, 5), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
@@ -681,19 +787,66 @@ def poyo_compare_embedding_mode_analysis():
     )
     
 def poyo_compare_mu_std_module_analysis():
+    datasets = ['lowpass_' + d for d in experiments.dataset_list] + experiments.dataset_list
     cfgs = experiments.poyo_compare_mu_std_module()
-    compare_model_training_curves(
-        cfgs, 'poyo_compare_mu_std_module',
-        mode_list=['combined_mu_only', 'combined', 'original', 'learned', 'none', ],
-        model_list=['norm_proj', 'norm', 'proj', 'none'],
-    )
+    mu_options = ['last_combined', 'last', 'combined', 'original', ]
+    std_options = ['combined', 'combined_softplus', 'combined_exp', ]
+    model_list = [f'{mu}_{std}' for mu in mu_options for std in std_options]
+    performances = {}
+    for i_data, dataset in enumerate(datasets):
+        performance_list = get_weighted_performance(
+            cfgs, len(model_list), len(datasets), [i_data], transpose=True,
+        )
+        performances[dataset] = performance_list
 
-    cfgs = experiments.poyo_compare_mu_std_module_neuron()
-    compare_model_training_curves(
-        cfgs, 'poyo_compare_mu_std_module_neuron',
-        mode_list=['combined_mu_only', 'combined', 'original', 'learned', 'none', ],
-        model_list=['norm_proj', 'norm', 'proj', 'none'],
-    )
+    for mode in ['lowpass_', '']:
+        plot_datasets = [mode + d for d in experiments.dataset_list]
+        performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
+        plots.grouped_plot(
+            performance, group_labels=plot_datasets,
+            bar_labels=model_list, colors=plots.get_model_colors(model_list),
+            x_label='Dataset', y_label='Prediction Score',
+            ylim=[0, 0.6], save_dir='poyo_compare_mu_std_module', fig_name=f'poyo_compare_mu_std_module{mode}',
+            fig_size=(20, 5), style='bar',
+            legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+        )
+
+def simple_dataset_label(dataset_list):
+    names = []
+    for dataset in dataset_list:
+        name: str = dataset
+        name = name.replace('zebrafish', 'ze')
+        name = name.replace('celegans', 'ce')
+        name = name.replace('mice', 'mi')
+        name = name.replace('ahrens', 'ah')
+        name = name.replace('flavell', 'fl')
+        names.append(name)
+    return names
+
+def poyo_compare_conditioning_analysis():
+    _datasets = experiments.dataset_list + experiments.large_dataset_list
+    datasets = _datasets
+    cfgs = experiments.poyo_compare_conditioning()
+    model_list = [0, 128, 1024]
+    performances = {}
+
+    for i_data, dataset in enumerate(datasets):
+        performance_list = get_weighted_performance(
+            cfgs, len(model_list), len(datasets), [i_data], transpose=True,
+        )
+        performances[dataset] = performance_list
+
+    for mode in ['', ]:
+        plot_datasets = [mode + d for d in _datasets]
+        performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
+        plots.grouped_plot(
+            performance, group_labels=simple_dataset_label(plot_datasets),
+            bar_labels=model_list, colors=plots.get_model_colors(model_list),
+            x_label='Dataset', y_label='Prediction Score', legend_title='Conditioning Dim',
+            ylim=[0, 0.6], save_dir='poyo_compare_conditioning', fig_name=f'poyo_compare_conditioning{mode}',
+            fig_size=(10, 5), style='bar',
+            legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+        )
 
 def linear_compare_mu_std_module_analysis():
     cfgs = experiments.linear_test()

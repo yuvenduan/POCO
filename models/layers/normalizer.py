@@ -153,10 +153,11 @@ class MuStdWrapper(nn.Module):
 
         self.Tin = config.seq_length - config.pred_length
         self.normalize_input = config.normalize_input
-        self.mu_std_module_mode = config.mu_std_module_mode if self.normalize_input else 'none'
+        self.mu_module_mode = config.mu_module_mode
+        self.std_module_mode = config.std_module_mode
 
         self.datum_size = datum_size
-        print(f"Normalizer: normalize_input {self.normalize_input}, mu_std_module_mode {self.mu_std_module_mode}")
+        print(f"Normalizer: normalize_input {self.normalize_input}, mu_module_mode {self.mu_module_mode}, std_module_mode {self.std_module_mode}")
 
         self.mustd = MuStdModel(self.Tin, datum_size=datum_size, separate_projs=config.mu_std_separate_projs)
 
@@ -174,23 +175,44 @@ class MuStdWrapper(nn.Module):
         x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
         x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
 
+        if self.mu_module_mode == 'last':
+            mu = x[:, -1: ]
+        elif self.mu_module_mode == 'original':
+            mu = x_mean
+        elif self.mu_module_mode == 'combined':
+            mu = mu + x_mean
+        elif self.mu_module_mode == 'last_combined':
+            mu = mu + x[:, -1: ]
+        elif self.mu_module_mode == 'learned':
+            mu = mu
+        elif self.mu_module_mode == 'none':
+            mu = torch.zeros_like(mu)
+        else:
+            raise ValueError(f"Unknown mu_module_mode {self.mu_module_mode}")
+        
         if self.normalize_input:
             x = (x - x_mean) / (x_std + 1e-6)
-
-        if self.mu_std_module_mode == 'original':
-            mu, std = x_mean, x_std
-        elif self.mu_std_module_mode == 'learned':
-            pass
-        elif self.mu_std_module_mode == 'combined':
-            mu, std = mu + x_mean, std + x_std
-        elif self.mu_std_module_mode == 'combined_mu_only':
-            mu = mu + x_mean
-            std = torch.ones_like(std)
-        elif self.mu_std_module_mode == 'none':
-            mu = torch.zeros_like(mu)
+        
+        if self.std_module_mode == 'original':
+            std = x_std
+        elif self.std_module_mode == 'learned':
+            std = std
+        elif self.std_module_mode == 'learned_exp':
+            std = torch.exp(std)
+        elif self.std_module_mode == 'learned_softplus':
+            std = F.softplus(std)
+        elif self.std_module_mode == 'combined':
+            std = std + x_std
+        elif self.std_module_mode == 'combined_exp':
+            std = torch.exp(std + torch.log(x_std + 1e-6))
+        elif self.std_module_mode == 'combined_softplus':
+            val = torch.log(torch.exp(x_std) - 1 + 1e-6)
+            std = F.softplus(std + val)
+        elif self.std_module_mode == 'none':
             std = torch.ones_like(std)
         else:
-            raise ValueError(f"Unknown mu_std_module_mode {self.mu_std_module_mode}")
+            raise ValueError(f"Unknown std_module_mode {self.std_module_mode}")
+
         
         self.params = (mu, std)
         if not concat_output:

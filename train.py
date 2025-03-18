@@ -128,7 +128,6 @@ def model_train(config: NeuralPredictionConfig):
     torch.hub.set_dir(osp.join(DATA_DIR, 'torch_hub'))
     start_time = datetime.now()
 
-    assert config.config_mode == 'train', 'config mode must be train'
     if USE_CUDA:
         logging.info("training with GPU")
 

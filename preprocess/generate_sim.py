@@ -5,7 +5,7 @@ import numpy as np
 
 from utils.curbd import threeRegionSim
 from configs.config_global import SIM_DIR
-from preprocess.preprocess import process_data_matrix
+from .utils import process_data_matrix
 from sklearn.decomposition import PCA
 from analysis import plots
 

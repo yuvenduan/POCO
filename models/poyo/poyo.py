@@ -130,7 +130,7 @@ class POYO(nn.Module):
             latents = latents + self.session_emb(session_index).unsqueeze(1) + self.dataset_emb(dataset_index).unsqueeze(1) # B, N_latent, dim
         latents = latents.reshape(-1, latents.shape[2])
         latent_seqlen = torch.full((B, ), self.num_latents, device=x.device)
-        latent_timestamps = torch.arange(0, T, step=T // self.num_latents, device=x.device)
+        latent_timestamps = torch.arange(0, T, step=T / self.num_latents, device=x.device)
         latent_timestamps = latent_timestamps.repeat(B) # B * N_latent
 
         # outputs
@@ -155,3 +155,7 @@ class POYO(nn.Module):
         )
 
         return output_latents
+    
+    def reset_for_finetuning(self):
+        self.unit_emb.reset_parameters()
+        self.session_emb.reset_parameters()
