@@ -95,9 +95,9 @@ def model_init(config: BaseConfig, datum_size, unit_type=None):
     if config.finetuning:
         assert config.load_path is not None, 'load_path must be specified for finetuning'
         assert hasattr(model, 'load_pretrained'), 'model must have load_pretrained method for finetuning'
-        model.load_pretrained(torch.load(config.load_path))
+        model.load_pretrained(torch.load(config.load_path, weights_only=True))
     elif config.load_path is not None:
-        model.load_state_dict(torch.load(config.load_path))
+        model.load_state_dict(torch.load(config.load_path, weights_only=True))
         
     model.to(DEVICE)
     return model

@@ -127,7 +127,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.vqvae_embedding_dim = 64
         self.num_embeddings = 256
         self.commitment_cost = 0.25
-        self.compression_factor = 48
+        self.compression_factor = None # if None, set to seq_length - pred_length
         self.num_residual_layers = 2
         self.res_hidden_size = 64
 
@@ -159,7 +159,9 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.std_module_mode = 'combined' # 'original', 'learned', 'learned_exp', 'none', ..., see models/layers/normalizer.py
         self.mu_std_separate_projs = False
         self.conditioning = 'none' # or 'mlp'
-        self.conditioning_dim = 128
+        self.conditioning_dim = 1028
+        self.freeze_conditioned_net = False
+        self.decoder_context_length = None # if not None, use the last decoder_context_length steps as input to the decoder model
 
         # poyo config
         self.poyo_num_latents = 8

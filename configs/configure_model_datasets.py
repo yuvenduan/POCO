@@ -162,13 +162,21 @@ def configure_models(configs: dict):
                     config.rnn_rank = int(config.rnn_type[5:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
-            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO']:
+            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO', 'POCO']:
                 config.model_type = 'Decoder'
                 config.loss_mode = 'prediction'
                 config.decoder_type = model_type
                 config.tokenizer_dir = None
                 config.tokenizer_type = 'none'
                 config.separate_projs = False
+
+                if config.compression_factor is None:
+                    config.compression_factor = config.decoder_context_length if config.decoder_context_length is not None else config.seq_length - config.pred_length
+
+                if model_type == 'POCO':
+                    config.conditioning = 'mlp'
+                    config.conditioning_dim = 1028
+                    config.decoder_type = 'POYO'
 
                 if sub_model_type == 'TOTEM':
                     data_label = config.dataset_label

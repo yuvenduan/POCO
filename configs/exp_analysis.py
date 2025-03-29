@@ -40,8 +40,8 @@ def get_curve(cfgs, idx, key='TestLoss', max_batch=None, num_points=None, start=
             exp_data = pd.read_table(file_path)
             acc = exp_data[key][start: tot_steps + 1: plot_every]
             
-            if len(acc) == (tot_steps - start) // plot_every:
-                performance.append(acc)
+            if len(acc) >= (tot_steps - start) // plot_every:
+                performance.append(acc[: (tot_steps - start) // plot_every])
             else:
                 raise ValueError
         except:
@@ -91,7 +91,9 @@ def compare_model_training_curves(
     plot_model_lists = None,
     plot_train_test_curve = False,
     show_test_performance = False,
-    datasets = None
+    datasets = None,
+    max_batch = None,
+    colors = None,
 ):
     """
     Compare the train/test loss curves of different models, also save the train/val loss curves for each model
@@ -106,6 +108,7 @@ def compare_model_training_curves(
     :param plot_train_test_curve: whether to plot the train/test curves
     :param show_test_performance: whether to show the test performance on the legend
     :param datasets: a list of datasets to plot results, if None, use all datasets in the configuration
+    :param max_batch: the maximum batch to plot
     """
     
     performance = []
@@ -128,9 +131,9 @@ def compare_model_training_curves(
             test_mae = []
 
             for k, model in enumerate(model_list):
-                test_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key=f'{dataset}_val_mse')
+                test_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key=f'{dataset}_val_mse', max_batch=max_batch)
                 performance.append(test_curve)
-                train_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key=f'{dataset}_train_mse')
+                train_curve, x_axis = get_curve(cfgs, k + i * len(model_list), key=f'{dataset}_train_mse', max_batch=max_batch)
                 train_performance.append(train_curve)
 
                 if show_test_performance:
@@ -169,7 +172,7 @@ def compare_model_training_curves(
                 plot_train_performance = [train_performance[i] for i in indices]
                 plot_model_list = [model_list[i] for i in indices]
 
-                colors = plots.get_model_colors(plot_model_list)
+                colors = plots.get_model_colors(plot_model_list) if colors is None else colors
                 plots.error_plot(
                     x_axis,
                     plot_train_performance,
@@ -202,7 +205,7 @@ def compare_model_training_curves(
                     label_list=plot_model_list,
                     save_dir=save_dir,
                     fig_name=f'{dataset}_{mode}_val_{key}',
-                    figsize=(6 + show_test_performance * 4, 3),
+                    figsize=(7 + show_test_performance * 4, 3),
                     mode='errorshade',
                     extra_lines=draw_baseline,
                     legend_bbox_to_anchor=(1.05, 0), # move the legend to the right
@@ -305,6 +308,7 @@ def compare_param_analysis(
             extra_lines=draw_baseline if show_chance else None,
             errormode='sem' if len(cfgs) > 1 else 'none',
             colors=colors,
+            title=f'{mode}' if mode != '' else None
         )
 
 def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, key='val_score', weighted=None, dataset=None):
@@ -387,9 +391,17 @@ def compare_context_window_length_analysis():
     cfgs = experiments.compare_context_window_length()
     compare_param_analysis(
         cfgs, [2, 4, 16, 48],
-        model_list=['POYO', 'Linear', 'MLP'],
+        model_list=['POCO', 'POYO', 'Linear', 'MLP'],
         mode_list=experiments.dataset_list,
         param_name='context window',
+    )
+
+    cfgs = experiments.compare_decoder_context_window_length()
+    compare_param_analysis(
+        cfgs, [1, 4, 16, 48],
+        model_list=['POCO', 'POYO', 'Linear', 'MLP'],
+        mode_list=experiments.dataset_list,
+        param_name='decoder_context_window',
     )
 
 def compare_model_size_analysis():
@@ -442,7 +454,7 @@ def compare_models_multi_session_analysis():
         plot_train_test_curve=False,
     )
 
-def get_split_performance(cfgs, n_split_list, dataset_name, model_list=['POYO', 'Linear']):
+def get_split_performance(cfgs, n_split_list, dataset_name, model_list=['POCO', 'Linear']):
     sum_n = sum(n_split_list)
     performance = [[] for _ in range(len(model_list))]
     pc_performance = [[] for _ in range(len(model_list))]
@@ -468,50 +480,50 @@ def get_split_performance(cfgs, n_split_list, dataset_name, model_list=['POYO', 
     plots.error_plot(
         x_axis, performance, x_label='Number of splits', y_label='Prediction Score',
         label_list=model_list, save_dir='compare_training_set_size', fig_name=f'splits_vs_score_{dataset_name}',
-        xticks=x_axis, xticks_labels=xtick_labels, extra_lines=draw_chance, colors=colors,
+        xticks=x_axis, xticks_labels=xtick_labels, colors=colors, # extra_lines=draw_chance, 
         title=f'{dataset_name} ({max(n_split_list)} Sessions)'
     )
     cfg: NeuralPredictionConfig = cfgs[0][-1]
     plots.error_plot(
         x_axis, pc_performance, x_label='Number of splits', y_label='Prediction Score',
         label_list=model_list, save_dir='compare_training_set_size', fig_name=f'splits_vs_score_{dataset_name}_pc',
-        xticks=x_axis, xticks_labels=xtick_labels, extra_lines=draw_chance, colors=colors,
+        xticks=x_axis, xticks_labels=xtick_labels, colors=colors, # extra_lines=draw_chance,
         title=f'{dataset_name} {cfg.dataset_config[cfg.dataset_label[0]].pc_dim} PCs ({max(n_split_list)} Sessions)'
     )
 
 def compare_models_multiple_splits_analysis():
     cfgs = experiments.compare_models_multiple_splits_celegans_flavell()
     n_split_list = [1, 2, 3, 5, 8, 12, 20, 40]
-    get_split_performance(cfgs, n_split_list, 'celegansflavell')
+    get_split_performance(cfgs, n_split_list, 'Worm (Flavell)')
     
     cfgs = experiments.compare_models_multiple_splits_mice()
     n_split_list = [1, 2, 3, 4, 6, 12]
-    get_split_performance(cfgs, n_split_list, 'mice')
+    get_split_performance(cfgs, n_split_list, 'Mice')
 
     cfgs = experiments.compare_models_multiple_splits_zebrafish()
     n_split_list = [1, 2, 3, 5, 10, 19]
-    get_split_performance(cfgs, n_split_list, 'zebrafish')
+    get_split_performance(cfgs, n_split_list, 'Fish (Deisseroth)')
 
 def compare_train_length_analysis():
     cfgs = experiments.compare_train_length_celegans_flavell()
-    train_length_list = [128, 256, 512, 768, 1024, 1536, ]
+    train_length_list = [256, 512, 768, 1024, 1536, ]
     compare_param_analysis(
-        cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)', 
-        mode_list=['celegansflavell', 'celegansflavell_pc', ], save_dir='compare_training_set_size', show_chance=True
+        cfgs, np.log2(train_length_list), ['POCO', 'Linear'], 'log2(training recording length)', 
+        mode_list=['Worm (Flavell)', 'Worm PC (Flavell)', ], save_dir='compare_training_set_size', 
     )
 
     cfgs = experiments.compare_train_length_mice()
-    train_length_list = [128, 256, 512, 1024, 2048, 4096, 8192, 16394]
+    train_length_list = [256, 512, 1024, 2048, 4096, 8192, 16394]
     compare_param_analysis(
-        cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
-        mode_list=['mice', 'mice_pc', ], save_dir='compare_training_set_size', show_chance=True
+        cfgs, np.log2(train_length_list), ['POCO', 'Linear'], 'log2(training recording length)',
+        mode_list=['Mice', 'Mice PC', ], save_dir='compare_training_set_size',
     )
 
     cfgs = experiments.compare_train_length_zebrafish()
-    train_length_list = [128, 256, 512, 1024, 1536, 2048, 3072]
+    train_length_list = [256, 512, 1024, 1536, 2048, 3072]
     compare_param_analysis(
-        cfgs, np.log2(train_length_list), ['POYO', 'Linear'], 'log2(training recording length)',
-        mode_list=['zebrafish', 'zebrafish_pc', ], save_dir='compare_training_set_size', show_chance=True
+        cfgs, np.log2(train_length_list), ['POCO', 'Linear'], 'log2(training recording length)',
+        mode_list=['Fish PC (Ahrens)', 'Fish PC (Deisseroth)', ], save_dir='compare_training_set_size'
     )
 
 def compare_models_multi_species_analysis():
@@ -524,7 +536,7 @@ def compare_models_multi_species_analysis():
 
 def compare_dataset_filter_analysis():
     cfgs = experiments.compare_dataset_filter()
-    filter_types = ['lowpass', 'highpass', 'bandpass', 'none']
+    filter_types = ['lowpass', 'bandpass', 'none']
     n_exp = len(experiments.dataset_list)
     model_list = experiments.multi_session_model_list
 
@@ -556,7 +568,8 @@ def compare_models_analysis():
     def retrieve_performance(model_list, dataset_list):
         return [[performances[dataset + '_' + model] for dataset in dataset_list] for model in model_list]
 
-    zebrafish_model_list = ['3D_POYO', '2D_POYO']
+    multi_dataset_model_list = ['POCO', ]
+    zebrafish_model_list = [f'{n}Dataset_{name}' for n in [2, 3] for name in multi_dataset_model_list]
     cfgs = experiments.zebrafish_multi_datasets()
 
     for dataset in ['zebrafish_pc', 'zebrafishahrens_pc']:
@@ -566,10 +579,10 @@ def compare_models_analysis():
         set_performance(performance_list, zebrafish_model_list, dataset)
 
     cfgs = experiments.compare_models_multi_species()
-    all_species_model_list = ['All_POYO', 'All_Linear']
+    all_species_model_list = ['All_' + name for name in multi_dataset_model_list]
     dataset_list = [
-        'zebrafish', 'celegans', 'celegansflavell', 'mice', 
-        'zebrafish_pc', 'celegans_pc', 'celegansflavell_pc', 'mice_pc',
+        'zebrafish_pc', 'zebrafishahrens_pc', 'mice_pc', 'celegans_pc', 'celegansflavell_pc', 
+        'zebrafish', 'zebrafishahrens', 'mice', 'celegans', 'celegansflavell', 
     ]
 
     for i_data, dataset in enumerate(dataset_list):
@@ -651,7 +664,7 @@ def compare_models_analysis():
         single_session_model_list, 'zebrafishahrens_pc'
     )
     
-    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegans', 'celegansflavell', 'mice', 'mice_pc', ]
+    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'mice', 'mice_pc', 'celegans', 'celegansflavell',]
     plot_models = multi_session_model_list + single_session_model_list
     performance = retrieve_performance(plot_models, plot_datasets)
 
@@ -660,33 +673,33 @@ def compare_models_analysis():
         bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_all',
-        fig_size=(18, 6), style='bar',
+        fig_size=(20, 6), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
     # zebrafish only
     plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', ]
-    plot_models = zebrafish_model_list + ['MS_POYO', 'POYO', 'Linear', 'TexFilter']
+    plot_models = ['All_POCO', '2Dataset_POCO', 'MS_POCO', 'POCO', ]
     performance = retrieve_performance(plot_models, plot_datasets)
 
     plots.grouped_plot(
-        performance, group_labels=plot_datasets,
-        bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
+        performance, group_labels=['Fish PC (Karl)', 'Fish PC (Ahrens)', ],
+        bar_labels=plot_models, colors=['#272932', '#4d7ea8'] + plots.get_model_colors(plot_models[2: ]),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_poyo_zebrafish',
-        fig_size=(8, 6), style='bar',
+        fig_size=(5, 4), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
-    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegansflavell', 'mice']
-    plot_models = ['MS_POYO', 'POYO'] + multi_session_model_list[1: ] + single_session_model_list[1: ]
+    plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'mice', 'celegansflavell', 'celegans']
+    plot_models = ['MS_POCO', 'POCO', 'MS_POYO', 'MS_Latent_PLRNN', 'MS_AR_Transformer', 'MS_MLP', 'MS_TexFilter', 'TCN', 'Linear', ]
     performance = retrieve_performance(plot_models, plot_datasets)
     plots.grouped_plot(
-        performance, group_labels=plot_datasets,
+        performance, group_labels=['Fish PC (Karl)', 'Fish PC (Ahrens)', 'Mice', 'Worm (Flavell)', 'Worm (Zimmer)'],
         bar_labels=plot_models, colors=plots.get_model_colors(plot_models),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='selected',
-        fig_size=(12, 6), style='bar',
+        fig_size=(10, 4), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
@@ -716,13 +729,15 @@ def compare_models_zebrafish_single_neuron_analysis():
         performances[dataset] = performance_list
 
     plot_datasets = dataset_list
-    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
+    plot_model_list = ['POCO', 'POYO', 'MLP', 'TexFilter', 'Linear', ]
+    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(plot_model_list))]
+    
     plots.grouped_plot(
-        performance, group_labels=plot_datasets,
-        bar_labels=model_list, colors=plots.get_model_colors(['MS_' + model for model in model_list]),
+        performance, group_labels=['Fish (Karl)', 'Fish (Ahrens)', ],
+        bar_labels=model_list, colors=plots.get_model_colors(['MS_' + model for model in plot_model_list]),
         x_label='Dataset', y_label='Prediction Score',
         ylim=[0, 0.6], save_dir='compare_models_all', fig_name='compare_models_zebrafish_single_neuron',
-        fig_size=(6, 5), style='bar',
+        fig_size=(4.5, 4), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
     )
 
@@ -756,6 +771,39 @@ def compare_models_sim_analysis():
         ylim=[0, 1], save_dir='compare_models_sim', fig_name='compare_models_sim',
         fig_size=(8, 4), style='bar',
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+def zebrafish_finetuning_analysis():
+    cfgs = experiments.zebrafish_finetuning()
+    model_list = ['Pre-POCO(Full Finetune)', 'Pre-POCO(Unit_Embed only)', 'Pre-POCO(UI+MLP)', 'POCO', 'Linear', 'MLP', ]
+    performances = {}
+    
+    performances['zebrafish_pc_karl'] = get_weighted_performance(
+        cfgs, len(model_list), 7, [0, 1, 2, 3], transpose=True,
+    )
+    performances['zebrafish_pc_ahrens'] = get_weighted_performance(
+        cfgs, len(model_list), 7, [4, 5, 6], transpose=True,
+    )
+
+    plot_datasets = ['zebrafish_pc_karl', 'zebrafish_pc_ahrens', ]
+    plot_model_list = ['Pre-POCO(Full Finetune)', 'Pre-POCO(Unit_Embed only)', 'POCO', 'Linear', ]
+    performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(plot_model_list))]
+    plots.grouped_plot(
+        performance, group_labels=plot_datasets,
+        bar_labels=plot_model_list, colors=['#34623F', '#B39C4D'] + plots.get_model_colors(plot_model_list)[2: ],
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='zebrafish_finetuning', fig_name='zebrafish_finetuning',
+        fig_size=(8, 5), style='bar',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+    )
+
+    # also plot the training curves
+    compare_model_training_curves(
+        cfgs, 'zebrafish_finetuning',
+        mode_list=['karl{}'.format(i) for i in range(4)] + ['ahrens{}'.format(i) for i in range(3)],
+        model_list=model_list, max_batch=200, 
+        colors=['#34623F', '#B39C4D'] + plots.get_model_colors(plot_model_list[2: ]),
+        plot_model_lists=plot_model_list
     )
 
 def poyo_compare_embedding_mode_analysis():
@@ -825,9 +873,9 @@ def simple_dataset_label(dataset_list):
 
 def poyo_compare_conditioning_analysis():
     _datasets = experiments.dataset_list + experiments.large_dataset_list
-    datasets = _datasets
+    datasets = _datasets + ['lowpass_' + d for d in _datasets]
     cfgs = experiments.poyo_compare_conditioning()
-    model_list = [0, 128, 1024]
+    model_list = [0, 16, 128, 1024]
     performances = {}
 
     for i_data, dataset in enumerate(datasets):
@@ -836,7 +884,7 @@ def poyo_compare_conditioning_analysis():
         )
         performances[dataset] = performance_list
 
-    for mode in ['', ]:
+    for mode in ['', 'lowpass_']:
         plot_datasets = [mode + d for d in _datasets]
         performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
         plots.grouped_plot(

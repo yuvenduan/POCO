@@ -8,7 +8,9 @@ from collections.abc import Iterable
 
 def get_model_colors(model_list):
     colors = []
-    index = 1
+    index = 2
+    if all(isinstance(model, str) and not model.startswith('MS_') for model in model_list):
+        model_list = ['MS_' + model for model in model_list]
     for i, model in enumerate(model_list):
         if model in MODEL_COLORS:
             colors.append(MODEL_COLORS[model])
@@ -319,14 +321,14 @@ def grouped_plot(
     :param data_list: a list of size (num_bars, num_groups, (optional) num_seed)
     :param group_labels: labels for each group, would be shown on x-axis
     :param bar_labels: labels for each bar, would be shown on legend
-    :param bar_width: width of each bar, default is 1 / (num_bars + 1)
+    :param bar_width: width of each bar, default is 1 / (num_bars + 2)
     :param style: 'errorbar' or 'bar' or 'violin'
     """
 
     plt.figure(figsize=fig_size)
 
     if bar_width is None:
-        bar_width = 1 / (len(data_list) + 1)
+        bar_width = 1 / (len(data_list) + 2)
 
     if bar_labels is None:
         bar_labels = [None for data in data_list]

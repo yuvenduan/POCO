@@ -125,7 +125,10 @@ def train_experiment(experiment, on_cluster, on_server, partition, account, over
                 count += 1
 
         # prompt if user wants to continue
-        if input(f'Continue running {count} jobs? (y/n)') != 'y':
+        if count == 0:
+            logging.info('All experiments already completed for {:s}'.format(experiment))
+            return return_ids
+        elif input(f'Continue running {count} jobs? (y/n)') != 'y':
             return return_ids
     else:
         for config in exp_configs:

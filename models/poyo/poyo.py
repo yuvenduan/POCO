@@ -159,3 +159,8 @@ class POYO(nn.Module):
     def reset_for_finetuning(self):
         self.unit_emb.reset_parameters()
         self.session_emb.reset_parameters()
+
+    def embedding_requires_grad(self, requires_grad=True):
+        self.unit_emb.requires_grad_(requires_grad)
+        self.session_emb.requires_grad_(requires_grad)
+        # self.latent_emb.requires_grad_(requires_grad)

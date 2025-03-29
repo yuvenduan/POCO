@@ -377,7 +377,7 @@ class Decoder(nn.Module):
     def __init__(self, config: NeuralPredictionConfig, input_size, unit_types):
         super().__init__()
 
-        self.Tin = config.seq_length - config.pred_length
+        self.Tin = config.decoder_context_length if config.decoder_context_length is not None else config.seq_length - config.pred_length
         self.dataset_idx = [] # the dataset index for each session
         for i_dataset, size in enumerate(input_size):
             self.dataset_idx += [i_dataset] * len(size)
@@ -462,6 +462,7 @@ class Decoder(nn.Module):
             self.linear_out_size = 1
 
         self.conditioning = config.conditioning
+        self.conditioning_dim = config.conditioning_dim
         if config.conditioning == 'mlp':
             self.in_proj = nn.Sequential(nn.Linear(self.Tin, config.conditioning_dim), nn.ReLU())
             
@@ -484,9 +485,27 @@ class Decoder(nn.Module):
             else:
                 self.proj = nn.ModuleList([BatchedLinear(size, self.embedding_dim, self.linear_out_size, init=config.decoder_proj_init) for size in input_size])
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"Unknown conditioning model {config.conditioning}")
 
         self.normalizer = MuStdWrapper(config, input_size)
+
+        # freeze parts of the model for finetuning
+        if config.freeze_backbone:
+            for param in self.decoder.parameters():
+                param.requires_grad = False
+            if config.decoder_type == 'POYO':
+                # allow all embedding layers to be trained
+                self.decoder.embedding_requires_grad(True)
+            self.normalizer.requires_grad_(False)
+            if self.tokenizer_type != 'none':
+                self.tokenizer.requires_grad_(False)
+
+        if config.freeze_conditioned_net:
+            assert config.conditioning == 'mlp', "Only support freezing conditioned net for MLP conditioning"
+            self.in_proj.requires_grad_(False)
+            self.conditioning_alpha.requires_grad_(False)
+            self.conditioning_beta.requires_grad_(False)
+            self.out_proj.requires_grad_(False)
         
     def forward(self, x, unit_indices=None, unit_timestamps=None):
         """
@@ -496,10 +515,14 @@ class Decoder(nn.Module):
 
         bsz = [xx.size(1) for xx in x]
         L = x[0].size(0)
+        pred_step = self.pred_step
         x_list = self.normalizer.normalize(x, concat_output=False) # [L, B, D]
         x = self.normalizer.normalize(x, concat_output=True) # sum(B * D), L
 
-        pred_step = self.pred_step
+        # only use the last Tin steps
+        if L != self.Tin:
+            x_list = [xx[-self.Tin: ] for xx in x_list]
+            x = x[:, -self.Tin: ]
 
         # Tokenize the input sequence
         if self.tokenizer_type == 'vqvae':
@@ -510,7 +533,7 @@ class Decoder(nn.Module):
             out = self.tokenizer(out) # out: sum(B * D), C, TC
             out = out.permute(0, 2, 1) # out: sum(B * D), TC, C
         elif self.tokenizer_type == 'none':
-            out = x.reshape(x.shape[0], self.TC, L // self.TC) # out: sum(B * D), TC, E
+            out = x.reshape(x.shape[0], self.TC, self.Tin // self.TC) # out: sum(B * D), TC, E
         else:
             raise ValueError(f"Unknown tokenizer type {self.tokenizer_type}")
         d_list = self.input_size
