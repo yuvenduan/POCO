@@ -9,7 +9,7 @@ from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 
 from models.model_utils import get_rnn_from_config
 from models.layers import tcn
-from models.layers.normalizer import RevIN
+from models.layers.normalizer import RevIN, MuStdWrapper
 from models.layers.autoformer import series_decomp
 import models.layers.tsmixer as tsmixer
 
@@ -39,6 +39,7 @@ class Autoregressive(nn.Module):
         self.out_sizes = input_size
         self.teacher_forcing = config.teacher_forcing
         self.target_mode = config.target_mode
+        
         assert self.teacher_forcing, "Only support teacher forcing for now"
 
     def _forward(self, input):
@@ -68,6 +69,7 @@ class Autoregressive(nn.Module):
                 input = torch.cat([input, pred[-1: ] + input[-1: ]], dim=0)
             else:
                 raise ValueError(f"Unknown target mode {self.target_mode}")
+
         return pred
     
 class TCN(nn.Module):

@@ -5,7 +5,7 @@ __all__ = [
     'DLinear', 'MultiDLinear', 
     'TexFilter', 'PaiFilter', 
     'Latent_to_Obs', 'LatentModel', 
-    'Decoder'
+    'Decoder', 'NetFormer',
 ]
 
 import torch
@@ -21,25 +21,35 @@ from models.model_utils import get_rnn, get_pretrained_model, get_rnn_from_confi
 from models.TOTEM.models.decode import XcodeYtimeDecoder
 from models.poyo.poyo import POYO
 from models.layers.normalizer import MuStdWrapper, BatchedLinear, RevIN
+from models.layers.netformer import BaseNetFormer
 from configs.config_global import DEVICE
 
 class MultiSessionWrapper(nn.Module):
     # A wrapper for models that work on a single session of data, define a model for each session
 
-    def __init__(self, config: NeuralPredictionConfig, model_class, input_sizes, model_kwargs={}):
+    def __init__(self, config: NeuralPredictionConfig, model_class, input_sizes, model_kwargs={}, add_normalizer=False):
         super().__init__()
         if len(input_sizes) > 1:
             print(f"WARNING: Using separate models for each session, consider using shared backbone instead")
         input_sizes = list(itertools.chain(*input_sizes))
         self.models = nn.ModuleList([model_class(config, input_size, **model_kwargs) for input_size in input_sizes])
+
+        self.add_normalizer = add_normalizer
+        if add_normalizer:
+            self.normalizer = MuStdWrapper(config, input_sizes)
     
     def forward(self, x, **kwargs):
-        return [model(xx, **kwargs) for model, xx in zip(self.models, x)]
+        if self.add_normalizer:
+            x = self.normalizer.normalize(x, concat_output=False)
+        preds = [model(xx, **kwargs) for model, xx in zip(self.models, x)]
+        if self.add_normalizer:
+            preds = self.normalizer.unnormalize(preds)
+        return preds
     
 class MultiSessionSharedWrapper(nn.Module):
     # a wrapper that assumes some shared latent space and separate linear projections for each session
 
-    def __init__(self, config: NeuralPredictionConfig, model_class, input_sizes, model_kwargs={}, linear_proj=True):
+    def __init__(self, config: NeuralPredictionConfig, model_class, input_sizes, model_kwargs={}, linear_proj=True, add_normalizer=False):
         super().__init__()
         input_sizes = list(itertools.chain(*input_sizes))
         self.shared_model = model_class(config, config.hidden_size, **model_kwargs)
@@ -51,9 +61,15 @@ class MultiSessionSharedWrapper(nn.Module):
             self.out_projs = nn.ModuleList([nn.Linear(config.hidden_size, size) for size in input_sizes])
         else:
             print(f"Using shared backbone without linear projection, the model must be agnostic to input size")
+
+        if add_normalizer:
+            self.normalizer = MuStdWrapper(config, input_sizes)
+        self.add_normalizer = add_normalizer
         
     def forward(self, x, **kwargs):
         # x: list of tensors, each of shape (L, B, D)
+        if self.add_normalizer:
+            x = self.normalizer.normalize(x, concat_output=False)
         if hasattr(self, 'in_projs'):
             x = [proj(xx) for proj, xx in zip(self.in_projs, x)]
         bsz = [xx.size(1) for xx in x]
@@ -62,15 +78,17 @@ class MultiSessionSharedWrapper(nn.Module):
         x = torch.split(x, bsz, dim=1)
         if hasattr(self, 'out_projs'):
             x = [proj(xx) for proj, xx in zip(self.out_projs, x)]
+        if self.add_normalizer:
+            x = self.normalizer.unnormalize(x)
         return x
 
 class Autoregressive(MultiSessionWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
-        super().__init__(config, single_models.Autoregressive, input_size)
+        super().__init__(config, single_models.Autoregressive, input_size, add_normalizer=True)
 
 class MultiAutoregressive(MultiSessionSharedWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
-        super().__init__(config, single_models.Autoregressive, input_size, model_kwargs={'omit_linear': True})
+        super().__init__(config, single_models.Autoregressive, input_size, model_kwargs={'omit_linear': True}, add_normalizer=True)
 
 class TCN(MultiSessionWrapper):
     def __init__(self, config: NeuralPredictionConfig, input_size):
@@ -574,6 +592,7 @@ class Decoder(nn.Module):
                 d_list = [1 for _ in self.input_size]
 
         else:
+            print(out.shape)
             embed = self.decoder(out) # sum(B * D), embedding_dim
 
         # partition embed to a list of tensors, each of shape (B, D, 1, embedding_dim)
@@ -628,3 +647,41 @@ class Decoder(nn.Module):
 
         if hasattr(self.decoder, 'reset_for_finetuning'):
             self.decoder.reset_for_finetuning()
+
+class NetFormer(nn.Module):
+    """
+    NetFormer model
+    """
+
+    def __init__(self, config: NeuralPredictionConfig, input_size):
+        super().__init__()
+        
+        input_size = list(itertools.chain(*input_size))
+        self.pred_step = config.pred_length
+        sum_channels = sum(input_size)
+
+        self.input_size = input_size
+        self.netformer = BaseNetFormer(
+            sum_channels, 
+            config.seq_length,
+            config.pred_length,
+        )
+
+        self.normalizer = MuStdWrapper(config, input_size)
+
+    def forward(self, input):
+        """
+        :param x: list of tensors, each of shape (L, B, D)
+        """
+        x_list = self.normalizer.normalize(input, concat_output=False) # [L, B, D]
+        pred_list = []
+
+        for i in range(len(x_list)):
+            x = x_list[i].permute(1, 2, 0) # (B, D, L)
+            neuron_ids = torch.arange(sum(self.input_size[: i]), sum(self.input_size[: i + 1]), device=x.device).unsqueeze(0)
+            pred = self.netformer(x, neuron_ids)
+            pred = pred.permute(2, 0, 1) # (B, D, L) -> (L, B, D)
+            pred_list.append(pred)
+
+        pred_list = self.normalizer.unnormalize(pred_list)
+        return pred_list

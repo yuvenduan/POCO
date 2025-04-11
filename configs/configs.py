@@ -127,7 +127,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.vqvae_embedding_dim = 64
         self.num_embeddings = 256
         self.commitment_cost = 0.25
-        self.compression_factor = None # if None, set to seq_length - pred_length
+        self.compression_factor = 16 # if None, set to seq_length - pred_length
         self.num_residual_layers = 2
         self.res_hidden_size = 64
 
@@ -150,16 +150,19 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.population_token_dim = 512
         self.tokenizer_state_dict_file = f'net_{self.max_batch}.pth'
         self.decoder_type = 'Transformer' # or 'MLP', 'Linear'
-        self.decoder_hidden_size = 1024
+        self.decoder_hidden_size = 128
         self.separate_projs = False
         self.decoder_proj_init = 'fan_in'
-        self.normalize_input = True # if True, normalize the input to the decoder
+
+        # config for normalizer, only used for model that includes the MuStd module
+        self.normalize_input = False # if True, normalize the input to the decoder; only works 
         self.mu_std_loss_coef = 0
-        self.mu_module_mode = 'combined' # 'last', 'original', 'learned', 'none', ...
-        self.std_module_mode = 'combined' # 'original', 'learned', 'learned_exp', 'none', ..., see models/layers/normalizer.py
+        self.mu_module_mode = 'none' # 'last', 'original', 'learned', 'none', ...
+        self.std_module_mode = 'none' # 'original', 'learned', 'learned_exp', 'none', ..., see models/layers/normalizer.py
         self.mu_std_separate_projs = False
+
         self.conditioning = 'none' # or 'mlp'
-        self.conditioning_dim = 1028
+        self.conditioning_dim = 1024
         self.freeze_conditioned_net = False
         self.decoder_context_length = None # if not None, use the last decoder_context_length steps as input to the decoder model
 
@@ -169,7 +172,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.unit_embedding_components = ['session', ] # embeddings that will in added on top of unit embedding
         self.poyo_query_mode = 'single' # or 'multi'
         self.poyo_output_mode = 'query' # or 'latent'
-        self.decoder_num_layers = 4
+        self.decoder_num_layers = 1
         self.decoder_num_heads = 16
         self.poyo_unit_dropout = 0
         self.rotary_attention_tmax = 100

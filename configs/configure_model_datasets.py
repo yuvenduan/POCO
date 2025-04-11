@@ -162,7 +162,7 @@ def configure_models(configs: dict):
                     config.rnn_rank = int(config.rnn_type[5:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
-            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO', 'POCO']:
+            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO', 'POCO', 'TACO']:
                 config.model_type = 'Decoder'
                 config.loss_mode = 'prediction'
                 config.decoder_type = model_type
@@ -175,8 +175,12 @@ def configure_models(configs: dict):
 
                 if model_type == 'POCO':
                     config.conditioning = 'mlp'
-                    config.conditioning_dim = 1028
                     config.decoder_type = 'POYO'
+                elif model_type == 'MLP':
+                    config.decoder_hidden_size = 1024
+                elif model_type == 'TACO':
+                    config.conditioning = 'mlp'
+                    config.decoder_type = 'Transformer'
 
                 if sub_model_type == 'TOTEM':
                     data_label = config.dataset_label
@@ -191,6 +195,11 @@ def configure_models(configs: dict):
                 elif sub_model_type == 'pop':
                     config.population_token = True
                     config.population_token_dim = 512
+            elif model_type == 'NetFormer':
+                config.loss_mode = 'autoregressive'
+                config.model_type = 'NetFormer'
+                config.normalize_input = True
+                config.mu_module_mode = config.std_module_mode = 'original'
             else:
                 config.loss_mode = 'prediction'
                 config.model_type = model_type

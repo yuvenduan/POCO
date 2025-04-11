@@ -35,7 +35,7 @@ def reduce(data: np.ndarray, method: str) -> np.ndarray:
 
 def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TSNE', 'UMAP']):
     # load model weights
-    if cfg.decoder_type != "POYO" or cfg.model_type != 'Decoder':
+    if cfg.decoder_type not in ["POCO", "POYO"] or cfg.model_type != 'Decoder':
         raise ValueError("This function is only for POYO model")
 
     params = torch.load(osp.join(cfg.save_path, 'net_best.pth'), weights_only=True)
@@ -84,6 +84,8 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
         assert session_start[-1] == unit_embed.shape[0]
         assert len(colors) == sessiom_embed.shape[0]
         assert sum(len(x) for x in colors) == unit_embed.shape[0]
+    elif cfg.dataset == 'mice':
+        pass
         
     for i in range(max(1, sessiom_embed.shape[0])):
         for method in methods:
@@ -117,10 +119,8 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
     if cfg.dataset == 'zebrafish':
         assert sessiom_embed.shape[0] == 19
         colors = [f'C{x // 5}' for x in range(19)]
-    elif cfg.dataset == 'simulation':
-        return
     else:
-        raise NotImplementedError(f"Unknown dataset {cfg.dataset}")
+        return
     
     for method in methods:
         reduced_session_embed = reduce(sessiom_embed, method)
