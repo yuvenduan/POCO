@@ -203,7 +203,7 @@ def trainMultiRegionRNN(activity, dtData=1, dtFactor=1, g=1.5, tauRNN=0.01,
             idx = npr.choice(range(len(iTarget)))
             ax.plot(tRNN, RNN[iTarget[idx], :])
             ax.plot(tData, Adata[iTarget[idx], :])
-            ax.set_title(nRun)
+            ax.set_title(str(nRun))
             fig.show()
             plt.pause(0.05)
 

@@ -161,18 +161,20 @@ class MuStdWrapper(nn.Module):
 
         self.mustd = MuStdModel(self.Tin, datum_size=datum_size, separate_projs=config.mu_std_separate_projs)
 
-    def normalize(self, x, concat_output=False):
+    def normalize(self, x_list, concat_output=False):
         """
-        x: list of tensors, each of shape (L, B, D)
+        x_list: list of tensors, each of shape (L, B, D)
         concat_output: if True, return a single tensor of shape (sum(B * D), L), otherwise return a list of tensors, each of shape (L, B, D)
-        """
+        """     
 
-        self.bsz = bsz = [xx.size(1) for xx in x]
-        self.L = L = x[0].size(0)
+        self.bsz = bsz = [xx.size(1) for xx in x_list]
+        self.L = L = x_list[0].size(0)
+        x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x_list, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
 
-        mu, std = self.mustd(x).chunk(2, dim=1)
+        if not self.normalize_input and self.mu_module_mode == 'none' and self.std_module_mode == 'none':
+            return x if concat_output else x_list
 
-        x = torch.cat([xx.reshape(L, b * d) for xx, b, d in zip(x, bsz, self.datum_size)], dim=1).transpose(0, 1) # sum(B * D), L
+        mu, std = self.mustd(x_list).chunk(2, dim=1)
         x_mean, x_std = x.mean(dim=1, keepdim=True), x.std(dim=1, keepdim=True) # x_mean, x_std: sum(B * D), 1
 
         if self.mu_module_mode == 'last':
@@ -227,6 +229,9 @@ class MuStdWrapper(nn.Module):
         x: list of tensors, each of shape (L, B, D)
         return: a list of unnormalized tensors, each of shape (L, B, D)
         """
+
+        if not self.normalize_input and self.mu_module_mode == 'none' and self.std_module_mode == 'none':
+            return x
 
         bsz, L = self.bsz, self.L
         mu, std = self.params

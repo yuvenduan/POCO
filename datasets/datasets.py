@@ -22,7 +22,7 @@ class NeuralDataset(tud.Dataset):
 
     def load_all_activities(self, config: DatasetConfig):
         """
-        Return: (activity, unit_types)
+        Returns: (activity, unit_types)
             activity: a list containing neural activity for each session, each element is a N * T matrix
             unit_type: (optional) a list containing unit types for each session, each element is an array of N integers
             unit type could be brain region, cell type, rank of pc etc.

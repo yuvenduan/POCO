@@ -6,13 +6,15 @@ import matplotlib.pyplot as plt
 import umap
 
 from analysis.plots import error_plot, grouped_plot, get_model_colors
-from configs.configs import NeuralPredictionConfig
+from configs.configs import NeuralPredictionConfig, DatasetConfig
 from datasets.datasets import get_baseline_performance
 from analysis.plots import grouped_plot, errorbar_plot
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from utils.data_utils import get_exp_names
-from configs.config_global import ZEBRAFISH_PROCESSED_DIR, SIM_DIR
+from datasets.datasets import Zebrafish, Mice
+
+from configs.config_global import ZEBRAFISH_PROCESSED_DIR, SIM_DIR, FIG_DIR, MICE_BRAIN_AREAS
 
 def pca_reduce(data: np.ndarray) -> np.ndarray:
     return PCA(n_components=2).fit_transform(data)
@@ -33,7 +35,55 @@ def reduce(data: np.ndarray, method: str) -> np.ndarray:
     else:
         raise ValueError(f"Unknown method {method}")
 
-def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TSNE', 'UMAP']):
+def compute_distance_matrix(data: np.ndarray, indices: np.ndarray, n_classes: int) -> np.ndarray:
+    D_E = np.zeros((n_classes, n_classes)) # euclidean distance
+    D_C = np.zeros((n_classes, n_classes)) # cosine similarity
+    for i in range(n_classes):
+        for j in range(n_classes):
+            A = data[indices == i + 1]
+            B = data[indices == j + 1]
+            dist_e = np.linalg.norm(A[:, None] - B[None, :], axis=2) # n * m
+            dist_c = np.dot(A, B.T) / (np.linalg.norm(A, axis=1)[:, None] * np.linalg.norm(B, axis=1)[None, :]) # n * m
+            # exclude self distance
+            if i == j:
+                D_E[i, i] = dist_e[dist_e > 1e-6].mean()
+                D_C[i, i] = dist_c[dist_c < 1 - 1e-5].mean()
+                assert (dist_e <= 1e-6).sum() == A.shape[0], "are there identical embeddings?"
+                assert (dist_c >= 1 - 1e-5).sum() == A.shape[0], "are there identical embeddings?"
+            else:
+                D_E[i, j] = dist_e.mean()
+                D_C[i, j] = dist_c.mean()
+                D_E[j, i] = D_E[i, j]
+                D_C[j, i] = D_C[i, j]
+    
+    return D_E, D_C
+
+def plot_distance_matrices(D_E: np.ndarray, D_C: np.ndarray, names: list, figure_dir: str, figure_name: str):
+    # plot distance matrix
+    n_classes = len(names)
+
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+    im = ax[0].imshow(D_E, cmap='hot', interpolation='nearest')
+    ax[0].set_title("Euclidean Distance")
+    ax[0].set_xticks(np.arange(n_classes))
+    ax[0].set_yticks(np.arange(n_classes))
+    ax[0].set_xticklabels(names, rotation=45)
+    ax[0].set_yticklabels(names, rotation=45)
+    fig.colorbar(im, ax=ax[0])
+
+    im = ax[1].imshow(D_C, cmap='coolwarm', interpolation='nearest')
+    ax[1].set_title("Cosine Similarity")
+    ax[1].set_xticks(np.arange(n_classes))
+    ax[1].set_yticks(np.arange(n_classes))
+    ax[1].set_xticklabels(names, rotation=45)
+    ax[1].set_yticklabels(names, rotation=45)
+    fig.colorbar(im, ax=ax[1])
+
+    plt.tight_layout()
+    plt.savefig(osp.join(figure_dir, figure_name))
+    plt.close()
+
+def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TSNE', 'UMAP'], sub_dir_name=None):
     # load model weights
     if cfg.decoder_type not in ["POCO", "POYO"] or cfg.model_type != 'Decoder':
         raise ValueError("This function is only for POYO model")
@@ -43,68 +93,90 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
     # warning: this is a hacky way to get the embedding weights, might not work if code changes
     unit_embed = params['decoder.unit_emb.weight'].cpu().numpy()
     sessiom_embed = params['decoder.session_emb.weight'].cpu().numpy()
-    figure_dir = osp.join(cfg.save_path, 'embedding')
+
+    if sub_dir_name is None:
+        sub_dir_name = cfg.dataset_label[0]
+    figure_dir = osp.join(FIG_DIR, 'embedding', sub_dir_name, "seed" + str(cfg.seed))
     os.makedirs(figure_dir, exist_ok=True)
 
     print("Unit embedding shape:", unit_embed.shape)
     print("Session embedding shape:", sessiom_embed.shape)
 
-    # plot 1: show unit embedding
-    if cfg.pc_dim is not None:
+    dataset_label = cfg.dataset_label[0]
+    dataset_config: DatasetConfig = cfg.dataset_config[dataset_label]
+    s = None
+    masks = None
+    assert len(cfg.dataset_label) == 1, "Only one dataset is supported for now"
+    
+    region_ids = None
+
+    if dataset_config.pc_dim is not None:
         cmap = plt.get_cmap('coolwarm')
-        colors = [cmap(np.linspace(0, 1, cfg.pc_dim))] * sessiom_embed.shape[0]
-        assert unit_embed.shape[0] == sessiom_embed.shape[0] * cfg.pc_dim
-        session_start = np.arange(0, unit_embed.shape[0] + 1, cfg.pc_dim)
-        s = None
-    elif cfg.dataset == 'zebrafish':
-        exp_names = get_exp_names()
+        colors = [cmap(np.linspace(0, 1, dataset_config.pc_dim))] * sessiom_embed.shape[0]
+        assert unit_embed.shape[0] == sessiom_embed.shape[0] * dataset_config.pc_dim
+        session_start = np.arange(0, unit_embed.shape[0] + 1, dataset_config.pc_dim)
+
+    elif dataset_label == 'zebrafish':
         session_start = [0, ]
         colors = []
+        masks = []
+        dataset = Zebrafish(cfg.dataset_config[dataset_label])
+        s = 3
+        region_names = ['LHb', 'MHb', 'ctel', 'dthal', 'gc', 'raphe', 'tel', 'vent', 'vthal']
 
-        for exp_type in cfg.exp_types:
-            for i_exp, exp_name in enumerate(exp_names[exp_type]):
-                if cfg.session_ids != 'all' and i_exp not in cfg.session_ids:
-                    continue
+        for unit_type in dataset.unit_types:
+            session_start.append(session_start[-1] + len(unit_type))
+            colors.append(['C' + str(i if i <= 9 else i - 9) for i in unit_type])
+            masks.append(unit_type > 0)
+        region_ids = np.concatenate(dataset.unit_types)
+        region_ids[region_ids > 9] = region_ids[region_ids > 9] - 9
 
-                filename = os.path.join(ZEBRAFISH_PROCESSED_DIR, exp_name + '.npz')
-                fishdata = np.load(filename)
+    elif dataset_label == 'mice':
+        session_start = [0, ]
+        colors = []
+        s = 6
+        dataset = Mice(cfg.dataset_config[dataset_label])
+        region_names = MICE_BRAIN_AREAS
 
-                n_neurons = fishdata['M'].shape[0]
-                color_index = np.full(n_neurons, 10)
-                brain_regions = ['LHb', 'MHb', 'ctel', 'dthal', 'gc', 'raphe', 'tel', 'vent', 'vthal']
+        for unit_type in dataset.unit_types:
+            session_start.append(session_start[-1] + len(unit_type))
+            colors.append(['C' + str(i) for i in unit_type])
 
-                for i, region in enumerate(brain_regions):
-                    indices = fishdata['in_l_' + region] | fishdata['in_r_' + region]
-                    color_index[indices] = i + 1
-                
-                colors.append([f'C{x}' for x in color_index])
-                session_start.append(session_start[-1] + n_neurons)
-        s = 1
+        region_ids = np.concatenate(dataset.unit_types) + 1
+    else:
+        raise ValueError(f"Unknown dataset {dataset}")
 
-        assert session_start[-1] == unit_embed.shape[0]
-        assert len(colors) == sessiom_embed.shape[0]
-        assert sum(len(x) for x in colors) == unit_embed.shape[0]
-    elif cfg.dataset == 'mice':
-        pass
-        
-    for i in range(max(1, sessiom_embed.shape[0])):
+    # plot 1: average distance between brain regions
+    if region_ids is not None and dataset_label in ['mice']: # zebrafish is not supported yet, too large!
+        n_classes = len(region_names)
+        D_E, D_C = compute_distance_matrix(unit_embed, region_ids, n_classes)
+        plot_distance_matrices(D_E, D_C, region_names, figure_dir, "distance_matrix.pdf")
+
+    for i in range(sessiom_embed.shape[0]):
+        # plot 2: visualize unit embedding
         for method in methods:
+
             reduced_unit_embed = reduce(unit_embed[session_start[i]: session_start[i + 1]], method)
-            plt.figure(figsize=(7, 5))
-            plt.scatter(reduced_unit_embed[:, 0], reduced_unit_embed[:, 1], c=colors[i], s=s)
+            if masks is not None:
+                reduced_unit_embed = reduced_unit_embed[masks[i]]
+                color = [colors[i][j] for j in range(len(colors[i])) if masks[i][j]]
+            else:
+                color = colors[i]
+
+            plt.figure(figsize=(4.5, 3.5))
+            plt.scatter(reduced_unit_embed[:, 0], reduced_unit_embed[:, 1], c=color, s=s)
             plt.title(f"Unit Embedding ({method})")
             plt.xlabel("Dim 1")
             plt.ylabel("Dim 2")
 
-            if cfg.pc_dim is not None:
+            if dataset_config.pc_dim is not None:
                 # add colorbar
-                sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=cfg.pc_dim))
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=0, vmax=dataset_config.pc_dim))
                 sm._A = []
                 plt.colorbar(sm, label='PC index', ax=plt.gca())
-            elif cfg.dataset == 'zebrafish':
+            else:
                 # add legend that explains the 10 colors
-                regions = ['LHb', 'MHb', 'ctel', 'dthal', 'gc', 'raphe', 'tel', 'vent', 'vthal']
-                for j, region in enumerate(regions):
+                for j, region in enumerate(region_names):
                     plt.scatter([], [], c=f'C{j}', label=region)
                 plt.legend()
 
@@ -115,28 +187,40 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
 
             print(f"Animal {i} unit embedding visualization saved for {method}", flush=True)
 
-    # plot 2: show session embedding
-    if cfg.dataset == 'zebrafish':
+    # plot 3: show session embedding
+    session_classes = np.zeros(sessiom_embed.shape[0])
+    class_names = None
+    if dataset_label in ['zebrafish', 'zebrafish_pc']:
         assert sessiom_embed.shape[0] == 19
-        colors = [f'C{x // 5}' for x in range(19)]
+        session_classes = np.array([x // 5 + 1 for x in range(19)])
+        class_names = ['control', 'shocked', 'reshocked', 'katamine']
+    elif dataset_label in ['mice', 'mice_pc']:
+        assert sessiom_embed.shape[0] == 12
+        session_classes = np.array([1] + [2] * 5 + [3] * 4 + [4] * 2)
+        class_names = ['M1', 'M2', 'M3', 'M4']
     else:
         return
+
+    colors = [f'C{i}' for i in session_classes]
+
+    if class_names is not None:
+        n_classes = len(class_names)
+        D_E, D_C = compute_distance_matrix(sessiom_embed, session_classes, n_classes)
+        plot_distance_matrices(D_E, D_C, class_names, figure_dir, "session_distance_matrix.pdf")
     
     for method in methods:
         reduced_session_embed = reduce(sessiom_embed, method)
-        plt.figure(figsize=(5, 5))
-        plt.scatter(reduced_session_embed[:, 0], reduced_session_embed[:, 1], c=colors)
+        plt.figure(figsize=(4, 3.5))
+        plt.scatter(reduced_session_embed[:, 0], reduced_session_embed[:, 1], c=colors, s=48, marker='x')
         plt.title(f"Session Embedding ({method})")
         plt.xlabel("Dim 1")
         plt.ylabel("Dim 2")
 
-        if cfg.dataset == 'zebrafish':
-            # add legend that explains the 4 colors
-            cohorts = ['control', 'shocked', 'reshocked', 'katamine']
-            for i, cohort in enumerate(cohorts):
-                plt.scatter([], [], c=f'C{i}', label=cohort)
+        if class_names is not None:
+            for i, region in enumerate(class_names):
+                plt.scatter([], [], c=f'C{i + 1}', label=region)
             plt.legend()
 
         plt.tight_layout()
-        plt.savefig(osp.join(figure_dir, f'session_embedding_{method}.png'))
+        plt.savefig(osp.join(figure_dir, f'session_embedding_{method}.pdf'))
         plt.close()

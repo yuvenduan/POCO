@@ -2,14 +2,14 @@ import numpy as np
 import os
 
 from analysis.plots import error_plot, grouped_plot, get_model_colors
-from configs.configs import NeuralPredictionConfig
+from configs.configs import NeuralPredictionConfig, DatasetConfig
 from datasets.datasets import get_baseline_performance
 from analysis.plots import grouped_plot, errorbar_plot
 from configs.config_global import FIG_DIR
 
 import matplotlib.pyplot as plt
 
-def analyze_predictivity(config: NeuralPredictionConfig):
+def analyze_predictivity(config: NeuralPredictionConfig, analyze_pcs=False):
 
     ret = {}
     fig_dir = os.path.join(config.save_path, 'performance_plots')
@@ -29,14 +29,15 @@ def analyze_predictivity(config: NeuralPredictionConfig):
 
         datum_size = [x.shape[1] for x in mse]
         pred_step = config.pred_length
-        baseline_loss_dict = get_baseline_performance(config, phase)
+        data_config: DatasetConfig = config.dataset_config[config.dataset_label[0]]
+        baseline_loss_dict = get_baseline_performance(data_config, phase)
     
         # calculate the mean prediction performance for different PCs
-        if config.pc_dim is not None:
+        if analyze_pcs:
 
-            sum_pred_num = np.zeros(config.pc_dim)
-            sum_mse = np.zeros(config.pc_dim)
-            sum_mae = np.zeros(config.pc_dim)
+            sum_pred_num = np.zeros(data_config.pc_dim)
+            sum_mse = np.zeros(data_config.pc_dim)
+            sum_mae = np.zeros(data_config.pc_dim)
 
             # weighted average of mse and mae for each PC across sessions
             for idx in range(len(datum_size)):
@@ -192,7 +193,7 @@ def analyze_predictivity_all(cfgs: dict, plot_phases=['train', 'val', 'test']):
     return info_list
 
 def compare_models(cfgs: dict, model_list: list, sub_dir='', 
-                   save_dir='compare_detailed_performance', plot_phases=['train', 'val', 'test'], config_filter='model_label'):
+                   save_dir='compare_detailed_performance', plot_phases=['train', 'val', 'test'], config_filter='model_label', analyze_pcs=False):
     
     save_dir = os.path.join(FIG_DIR, save_dir, sub_dir)
     os.makedirs(save_dir, exist_ok=True)
@@ -206,7 +207,8 @@ def compare_models(cfgs: dict, model_list: list, sub_dir='',
                 cfg: NeuralPredictionConfig
                 # print(cfg.__getattribute__(config_filter), model, type(cfg.__getattribute__(config_filter)), type(model))
                 if cfg.__getattribute__(config_filter) == model:
-                    ret = analyze_predictivity(cfg)
+                    ret = analyze_predictivity(cfg, analyze_pcs=analyze_pcs)
+                    print(sub_dir, model, ret["test"]["session_mse_improvement"])
 
                     valid = True
                     for phase in plot_phases:
@@ -230,7 +232,7 @@ def compare_models(cfgs: dict, model_list: list, sub_dir='',
 
     for phase in plot_phases:
     
-        if cfgs[0][0].pc_dim is not None:
+        if analyze_pcs:
             # plot 2: (baseline_mse - mse) / baseline_mse for different models
             # average over [2^k, 2^(k + 1)), k = 0, 1, 2, ... to get a smoother curve
 

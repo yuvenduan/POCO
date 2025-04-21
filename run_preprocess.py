@@ -6,10 +6,10 @@ from preprocess.mice import mice_preprocess
 if __name__ == '__main__':
 
     # get simulated data
-    # save_sim_activity()
+    save_sim_activity()
 
     # load and process spontaneous fish activity
-    process_zebrafish_activity()
+    # process_zebrafish_activity()
     # process_zebrafish_stim_activity()
 
     for filter_mode in ['none', 'lowpass',  ]:

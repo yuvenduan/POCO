@@ -44,7 +44,7 @@ def run(
 def save_sim_activity():
 
     # for n in [64, 128, 256, 384, 512, 1024, 1536, ]:
-    for n in [128, 256, 512, ]:
+    for n in [1024 ]:
         for seed in range(4):
             run(mode=1, n=n, ga=2.0, noise_std=0, seed=seed)
     return

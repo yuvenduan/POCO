@@ -592,7 +592,6 @@ class Decoder(nn.Module):
                 d_list = [1 for _ in self.input_size]
 
         else:
-            print(out.shape)
             embed = self.decoder(out) # sum(B * D), embedding_dim
 
         # partition embed to a list of tensors, each of shape (B, D, 1, embedding_dim)
