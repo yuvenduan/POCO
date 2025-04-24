@@ -617,7 +617,11 @@ class Simulation(NeuralDataset):
             if config.animal_ids != None and seed not in config.animal_ids:
                 continue
 
-            name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{seed}'
+            if config.use_template_connectivity:
+                name = f'tsim_{config.n_neurons}_{config.ga}_{config.sim_noise_std}_{config.connectivity_noise}_s{seed}_ts{config.tseed}'
+            else:
+                name = f'sim_{config.n_neurons}_{config.n_regions}_{config.ga}_{config.sim_noise_std}_s{seed}'
+            
             if config.sparsity != 1:
                 name += f'_sparsity_{config.sparsity}'
             filename = os.path.join(SIM_DIR, f'{name}.npz')

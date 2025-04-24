@@ -181,6 +181,9 @@ def process_data_matrix(
     print(f"Data shape: {data.shape}, Valid indices: {roi_indices.sum()}")
     data_dict['valid_indices'] = roi_indices
     data_dict['M'] = normalized
+
+    if pc_dim == 0:
+        return data_dict
     
     normalized = normalized[roi_indices]
     plot_delta_F(normalized, fig_dir=sub_fig_dir, exp_name=exp_name)

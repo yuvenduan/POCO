@@ -1,1 +1,1 @@
-srun -G 1 -t 600 --mem 512000 -p kempner_h100 --account kempner_krajan_lab --pty bash
+srun -G 1 -t 600 --mem 256000 -p gpu_test -c 8 --pty bash

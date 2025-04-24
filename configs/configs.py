@@ -213,6 +213,9 @@ class DatasetConfig:
         self.portion_observable_neurons = 1 # only used for simulated dataset: the portion of neurons that are observable
         self.train_data_length = 1000000
         self.sparsity = 1
+        self.use_template_connectivity = True
+        self.connectivity_noise = 1
+        self.tseed = 0
 
         # config for visual fish data
         self.use_stimuli = False
@@ -256,6 +259,8 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
         self.test_batch = 100000 # test on all available data 
         self.mem = 32
         self.do_analysis = False
+
+        self.connectivity_noise = None
 
     def to_dict(self):
         # Convert to a JSON-serializable dictionary

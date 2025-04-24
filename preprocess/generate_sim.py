@@ -14,57 +14,61 @@ def run(
     n = 500, # number of neurons in each region
     ga = 2.0, # chaos factor
     noise_std = 0, # noise standard deviation,
-    T = 3276.8,
+    T = 8192 * 0.01 * 5, # 32768 steps
     sparsity = 1,
-    seed = 0
+    seed = 0,
+    template_connectivity = None,
+    connectivity_noise = 0,
+    tseed = 0,
+    pc_dim=128,
 ):
 
     random.seed(seed)
     np.random.seed(seed)
 
-    name = f'sim_{n}_{mode}_{ga}_{noise_std}_s{seed}'
-    if sparsity != 1:
-        name += f'_sparsity_{sparsity}'
+    if template_connectivity is not None:
+        assert sparsity == 1, "sparsity should be 1 when using template connectivity"
+        assert mode == 1, "only one region when using template connectivity"
+        name = f'tsim_{n}_{ga}_{noise_std}_{connectivity_noise}_s{seed}_ts{tseed}'
+    else:
+        name = f'sim_{n}_{mode}_{ga}_{noise_std}_s{seed}'
+        if sparsity != 1:
+            name += f'_sparsity_{sparsity}'
 
     frac_inter = 0 if mode == 1 else 0.05
     out = threeRegionSim(
         number_units=n, dtData=0.01, tau=0.1, T=T, 
-        fig_save_name=name + f'_.pdf', leadTime=500, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1)
+        fig_save_name=name + f'_.pdf', leadTime=500, fracInterReg=frac_inter, ga=ga, noise_std=noise_std, sparsity=sparsity, one_region=(mode == 1),
+        template_connectivity=template_connectivity, connectivity_noise=connectivity_noise
     )
 
     if mode == 1:
         R = out['Ra']
     elif mode == 3:
         R = np.concatenate([out['Ra'], out['Rb'], out['Rc']], axis=0)
-    data_dict = process_data_matrix(R, 'preprocess/sim', pc_dim=128, exp_name=name, normalize_mode='zscore', plot_window=64 * 5)
+    data_dict = process_data_matrix(R, 'preprocess/sim', pc_dim=pc_dim, exp_name=name, normalize_mode='zscore', plot_window=64 * 5)
 
     os.makedirs(SIM_DIR, exist_ok=True)
     np.savez(os.path.join(SIM_DIR, f'{name}.npz'), **data_dict)
 
 def save_sim_activity():
 
-    # for n in [64, 128, 256, 384, 512, 1024, 1536, ]:
-    for n in [1024 ]:
+    os.makedirs(SIM_DIR, exist_ok=True)
+
+    total_sims = 2 * 4 * 4 * 4
+    cur = 0
+
+    for n in [200, 400]:
+        for tseed in range(4):
+            np.random.seed(n + tseed)
+            template = np.random.randn(n, n)
+            for noise_std in [0, 0.05, 0.5, 1]:
+                for seed in range(4):
+                    run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed)
+                    cur += 1
+                    print(f'Finished {cur}/{total_sims} sims')
+
+    return
+    for n in [128, 512]:
         for seed in range(4):
             run(mode=1, n=n, ga=2.0, noise_std=0, seed=seed)
-    return
-
-    os.makedirs(SIM_DIR, exist_ok=True)
-    n = 1500
-    for sparsity in [1]:
-        run(mode=1, n=n, ga=1.6, sparsity=sparsity)
-
-    for n in [1536, ]:
-        run(mode=1, n=n, ga=2.0, noise_std=0)
-
-    for mode in [1, 3]:
-        for n in [200, 500, 1500, 3000, ]:
-
-            ga = 2.0 if (mode == 1 and n == 200) else 1.8
-            run(mode=mode, n=n, ga=ga, noise_std=0)
-
-    for noise_std in [0.01, 0.03, 0.05, 0.1, 0.2, ]:
-        run(mode=1, n=500, ga=1.8, noise_std=noise_std)
-
-    for ga in [1.4, 1.6, 1.8, 2.0, 2.2, ]:
-        run(mode=1, n=500, ga=ga, noise_std=0)

@@ -200,6 +200,10 @@ def preprocess_zebrafish_jain(filter_mode='none'):
     data_dict = {}
     data_dict.update(return_dict)
 
-    os.makedirs(ZEBRAFISH_JAIN_PROCESSED_DIR, exist_ok=True)
-    out_filename = os.path.join(ZEBRAFISH_JAIN_PROCESSED_DIR, f'0.npz')
+    processed_dir = ZEBRAFISH_JAIN_PROCESSED_DIR
+    if filter_mode != 'none':
+        processed_dir = os.path.join(processed_dir + '_' + filter_mode)
+    os.makedirs(processed_dir, exist_ok=True)
+
+    out_filename = os.path.join(processed_dir, f'0.npz')
     np.savez(out_filename, **data_dict)

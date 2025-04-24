@@ -117,7 +117,11 @@ def configure_dataset(configs: dict):
                     dataset_config.n_neurons = int(label_prefix.split('_')[-1])
                     dataset_type = label_prefix.split('_')[1] if len(label.split('_')) > 2 else None
                     dataset_config.sampling_freq = 5
-                    config.mem = 128
+                    dataset_config.tseed = seed
+
+                    if config.connectivity_noise != None:
+                        dataset_config.connectivity_noise = config.connectivity_noise
+
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 512
                     elif dataset_type == None:
@@ -166,7 +170,7 @@ def configure_models(configs: dict):
                     config.rnn_rank = int(config.rnn_type[5:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
-            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO', 'POCO', 'TACO']:
+            elif model_type in ['Linear', 'NLinear', 'MLP', 'Transformer', 'POYO', 'POCO', 'TACO']:
                 config.model_type = 'Decoder'
                 config.loss_mode = 'prediction'
                 config.decoder_type = model_type
@@ -185,6 +189,9 @@ def configure_models(configs: dict):
                 elif model_type == 'TACO':
                     config.conditioning = 'mlp'
                     config.decoder_type = 'Transformer'
+                elif model_type == 'NLinear':
+                    config.decoder_type = 'Linear'
+                    config.mu_module_mode = 'last'
 
                 if sub_model_type == 'TOTEM':
                     data_label = config.dataset_label
@@ -199,6 +206,12 @@ def configure_models(configs: dict):
                 elif sub_model_type == 'pop':
                     config.population_token = True
                     config.population_token_dim = 512
+
+            elif model_type == 'POCOtest':
+                config.model_type = 'POCOtest'
+                config.loss_mode = 'prediction'
+                config.decoder_type = 'POYO'
+                config.conditioning = 'mlp'
             elif model_type == 'NetFormer':
                 config.loss_mode = 'autoregressive'
                 config.model_type = 'NetFormer'

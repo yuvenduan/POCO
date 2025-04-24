@@ -684,3 +684,13 @@ class NetFormer(nn.Module):
 
         pred_list = self.normalizer.unnormalize(pred_list)
         return pred_list
+
+from models.standalone_poco import POCO
+
+class POCOtest(POCO):
+    """
+    Use the standalone version of POCO
+    """
+
+    def __init__(self, config: NeuralPredictionConfig, input_size):
+        super().__init__(config, input_size)

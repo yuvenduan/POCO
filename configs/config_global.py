@@ -20,6 +20,7 @@ CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_zimmer')
 CELEGANS_FLAVELL_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_flavell')
 MICE_RAW_DIR = os.path.join(DATA_DIR, 'raw_mice')
 MICE_BRAIN_AREAS = ['PPC', 'RSP', 'V1', 'M2']
+ZEBRAFISH_BRAIN_AREAS = ['LHb', 'MHb', 'ctel', 'dthal', 'gc', 'raphe', 'tel', 'vent', 'vthal']
 
 N_ZEBRAFISH_SESSIONS = 19
 N_ZEBRAFISH_AHNRENS_SESSIONS = 15
@@ -43,7 +44,7 @@ DEVICE = torch.device("cuda" if USE_CUDA else "cpu")
 MAP_LOC = "cuda:0" if USE_CUDA else torch.device('cpu')
 LOG_LEVEL = logging.INFO
 BASE_MODEL_COLORS = {
-    'Linear': '#2C4875', 'DLinear': '#5A7684', 'POYO': '#edae49', 'POCO': '#E67E22', 'TACO': '#E99675',# '#FF7F0E', #
+    'NLinear': '#2C4875', 'DLinear': '#5A7684', 'POYO': '#edae49', 'POCO': '#E67E22', 'TACO': '#E99675',# '#FF7F0E', #
     'Latent_PLRNN': '#9B3D3D', 'AR_Transformer': '#4E5D6C', 'MultiAR_Transformer': '#4E5D6C',
     'NetFormer': '#A0C4FF', 'TexFilter': '#68A4D3',
     'TCN': '#E99675', 'MLP': '#005F73', 'TSMixer': '#C9A66B',

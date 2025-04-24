@@ -259,7 +259,10 @@ def threeRegionSim(number_units=100,
                    fig_save_name=None,
                    noise_std=0,
                    sparsity=1,
-                   one_region=False):
+                   one_region=False,
+                   template_connectivity=None,
+                   connectivity_noise=0
+                ):
     """
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %
@@ -313,6 +316,19 @@ def threeRegionSim(number_units=100,
         width (in frac of population) of sequence/FP
     plotSim: bool
         whether to plot the results
+    fig_save_name: str
+        name of figure to save
+    noise_std: float
+        standard deviation of noise
+    sparsity: float
+        fraction of connections in each region
+    one_region: bool
+        whether to simulate a single region
+    template_connectivity: numpy.array
+        if not None, use this as the template connectivity matrix, the resulting connectivity
+        will be sqrt(1 - noise_std^2) * template_connectivity + noise_std * noise; connections strength should be drawn from unit gaussian
+    connectivity_noise: float
+        if template_connectivity is not None, the std of gaussian noise added to the template connectivity; should be between 0 and 1
     """
     tData = np.arange(0, (T + dtData * 0.5), dtData)
 
@@ -320,7 +336,12 @@ def threeRegionSim(number_units=100,
     Na = Nb = Nc = number_units
 
     # set up RNN A (chaotic responder)
-    Ja = npr.randn(Na, Na)
+    if template_connectivity is not None:
+        # use the template connectivity as the base
+        Ja = np.sqrt(1 - connectivity_noise ** 2) * template_connectivity + npr.randn(Na, Na) * connectivity_noise
+    else:
+        Ja = npr.randn(Na, Na)
+
     mask = npr.rand(Na, Na) < sparsity
     Ja = ga / math.sqrt(Na * sparsity) * Ja * mask
     hCa = 2 * npr.rand(Na, 1) - 1  # start from random state

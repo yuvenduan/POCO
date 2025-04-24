@@ -6,10 +6,13 @@ import torch.nn.functional as F
 import torch.nn as nn
 from einops import rearrange, repeat
 
-try:
-    import xformers.ops as xops
-except ImportError:
-    xops = None
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    try:
+        import xformers.ops as xops
+    except ImportError:
+        xops = None
 
 from models.poyo.rotary_embedding import apply_rotary_pos_emb
 

@@ -14,7 +14,7 @@ from sklearn.manifold import TSNE
 from utils.data_utils import get_exp_names
 from datasets.datasets import Zebrafish, Mice
 
-from configs.config_global import ZEBRAFISH_PROCESSED_DIR, SIM_DIR, FIG_DIR, MICE_BRAIN_AREAS
+from configs.config_global import ZEBRAFISH_PROCESSED_DIR, SIM_DIR, FIG_DIR, MICE_BRAIN_AREAS, ZEBRAFISH_BRAIN_AREAS
 
 def pca_reduce(data: np.ndarray) -> np.ndarray:
     return PCA(n_components=2).fit_transform(data)
@@ -122,7 +122,7 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
         masks = []
         dataset = Zebrafish(cfg.dataset_config[dataset_label])
         s = 3
-        region_names = ['LHb', 'MHb', 'ctel', 'dthal', 'gc', 'raphe', 'tel', 'vent', 'vthal']
+        region_names = ZEBRAFISH_BRAIN_AREAS
 
         for unit_type in dataset.unit_types:
             session_start.append(session_start[-1] + len(unit_type))

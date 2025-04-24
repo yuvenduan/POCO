@@ -503,28 +503,25 @@ def histogram_plot(
 
 def scatter_plot(
     X, Y, 
-    colors, sizes=5,
+    colors, sizes=25,
     x_label=None,
     y_label=None,
     title=None,
     save_dir=None,
     fig_name=None,
-    legend_title=None,
+    marker='x',
     xticks=None,
     yticks=None,
     fontsize=12,
-    figsize=(4, 4),
+    figsize=(3.5, 3.5),
     xlim=None,
     ylim=None,
-    legend=False,
-    legend_frameon=False,
-    legend_loc='best',
-    legend_fontsize=None,
-    legend_bbox_to_anchor=None,
+    diag_line=False,
+    linewidth=1,
 ):
     
     plt.figure(figsize=figsize)
-    plt.scatter(X, Y, c=colors, s=sizes)
+    plt.scatter(X, Y, c=colors, s=sizes, marker=marker)
 
     if x_label:
         plt.xlabel(x_label, fontsize=fontsize)
@@ -546,12 +543,10 @@ def scatter_plot(
     if ylim is not None:
         plt.ylim(ylim)
 
-    if legend:
-        raise NotImplementedError('legend is not yet supported for scatter plot')
-        if legend_fontsize is None:
-            legend_fontsize = fontsize
-        plt.legend(title=legend_title, loc=legend_loc, frameon=legend_frameon,
-                   fontsize=legend_fontsize, title_fontsize=legend_fontsize, bbox_to_anchor=legend_bbox_to_anchor)
+    if diag_line:
+        max_val = max(max(X), max(Y))
+        min_val = min(min(X), min(Y))
+        plt.plot([min_val, max_val], [min_val, max_val], color='black', linestyle='--', linewidth=linewidth)
     
     adjust_figure()
 
