@@ -53,8 +53,6 @@ class MultiSessionSharedWrapper(nn.Module):
         super().__init__()
         input_sizes = list(itertools.chain(*input_sizes))
         self.shared_model = model_class(config, config.hidden_size, **model_kwargs)
-        if len(input_sizes) == 1:
-            print("WARNING: Only one session, consider using single-session model instead")
         if linear_proj:
             print(f"Using shared backbone with dim {config.hidden_size}")
             self.in_projs = nn.ModuleList([nn.Linear(size, config.hidden_size) for size in input_sizes])
@@ -685,7 +683,7 @@ class NetFormer(nn.Module):
         pred_list = self.normalizer.unnormalize(pred_list)
         return pred_list
 
-from models.standalone_poco import POCO
+from zapbench_scripts.standalone_poco import POCO
 
 class POCOtest(POCO):
     """
@@ -694,3 +692,27 @@ class POCOtest(POCO):
 
     def __init__(self, config: NeuralPredictionConfig, input_size):
         super().__init__(config, input_size)
+
+class NLinear(nn.Module):
+    """
+    Normalization-Linear
+    """
+    def __init__(self, configs: NeuralPredictionConfig, input_size):
+        super().__init__()
+
+        input_size = list(itertools.chain(*input_size))
+        self.task_name = "short_term_forecast"
+        self.seq_len = configs.seq_length - configs.pred_length
+        self.pred_len = configs.pred_length
+        self.Linear = nn.Linear(self.seq_len, self.pred_len)
+
+    def forward(self, x_list):
+        preds = []
+        for x in x_list:
+            # x: (L, B, D)
+            seq_last = x[-1:, :, :].detach()
+            x = x - seq_last
+            x = self.Linear(x.permute(1, 2, 0)).permute(2, 0, 1)
+            x = x + seq_last
+            preds.append(x)
+        return preds

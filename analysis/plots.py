@@ -366,6 +366,10 @@ def grouped_plot(
                     label=attr if idx == 0 else None
                 )
 
+            if error is not None:
+                for x, y, yerr in zip(x_axis, mean, error):
+                    plt.errorbar(x + offset, y, yerr=yerr, capsize=capsize, capthick=capthick, linewidth=capthick, color='black')
+
         elif style == 'errorbar':
             raise NotImplementedError('errorbar style is not supported for grouped plot')
             plt.errorbar(x_axis + offset, mean, yerr=error, label=attr, fmt='none', capsize=capsize, capthick=capthick, color=color)

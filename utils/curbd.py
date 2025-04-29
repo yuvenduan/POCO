@@ -339,6 +339,7 @@ def threeRegionSim(number_units=100,
     if template_connectivity is not None:
         # use the template connectivity as the base
         Ja = np.sqrt(1 - connectivity_noise ** 2) * template_connectivity + npr.randn(Na, Na) * connectivity_noise
+        print("Variance of connectivity: ", np.var(Ja))
     else:
         Ja = npr.randn(Na, Na)
 

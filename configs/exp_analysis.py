@@ -425,7 +425,7 @@ def compare_model_size_analysis():
         param_name='Number of Latents',
     )
 
-def get_split_performance(cfgs, n_split_list, dataset_name, modes=['', 'PC'], model_list=experiments.training_set_size_models):
+def get_split_performance(cfgs, n_split_list, dataset_name, modes=['', 'PC'], model_list=['POCO', 'TexFilter']):
     sum_n = sum(n_split_list)
 
     for i_mode, mode in enumerate(modes):
@@ -769,9 +769,9 @@ def compare_models_sim_analysis():
     cfgs = experiments.compare_models_sim_multi_session()
     model_list = experiments.selected_models
     model_list = ['MS_' + model_name.replace('Multi', '') for model_name in model_list]
-    noise_list = [0, 0.05, 0.2, 0.5, 1]
-    datasets = [f'sim{noise}_{n}' for noise in noise_list for n in [256, 512]]
-    num_seeds = 4
+    noise_list = [0, 0.05, 0.5, 1]
+    datasets = [f'sim{noise}_{n}' for noise in noise_list for n in [300]]
+    num_seeds = 16
 
     for i_data, dataset in enumerate(datasets):
         performance_list = get_weighted_performance(
@@ -780,9 +780,8 @@ def compare_models_sim_analysis():
         set_performance(performance_list, model_list, dataset)
 
     cfgs = experiments.compare_models_sim()
-    single_session_model_list = experiments.selected_models
+    single_session_model_list = [model_name.replace('Multi', '') for model_name in experiments.selected_models]
     for i_data, dataset in enumerate(datasets):
-        print(dataset)
         performance_list = get_weighted_performance(
             cfgs, len(single_session_model_list), len(datasets) * num_seeds, 
             list(range(i_data * num_seeds, i_data * num_seeds + num_seeds)), transpose=True,
@@ -791,16 +790,8 @@ def compare_models_sim_analysis():
 
     for i_noise, noise in enumerate(noise_list):
         plot_model_list = single_session_model_list
-        plot_datasets = [f'sim{noise}_{n}' for n in [256, 512]]
+        plot_datasets = [f'sim{noise}_{n}' for n in [300]]
         performance = retrieve_performance(plot_model_list, plot_datasets)
-        plots.grouped_plot(
-            performance, group_labels=plot_datasets,
-            bar_labels=plot_model_list, colors=plots.get_model_colors(plot_model_list),
-            x_label='Dataset', y_label='Prediction Score',
-            ylim=[0, 1], save_dir='compare_models_sim', fig_name=f'compare_models_sim_single_session_{noise}',
-            fig_size=(6, 4), style='bar',
-            legend_loc='upper left', legend_bbox_to_anchor=(1, 0.9), error_mode='sem'
-        )
 
         plot_model_list = model_list + single_session_model_list
         performance = retrieve_performance(plot_model_list, plot_datasets)
@@ -812,6 +803,42 @@ def compare_models_sim_analysis():
             fig_size=(6, 4), style='bar',
             legend_loc='upper left', legend_bbox_to_anchor=(1, 0.9), error_mode='sem'
         )
+
+    # plot 2: for 8 different seeds, plot MS_POCO - POCO, with x-axis as the noise level
+    for basemodel in ['POCO', 'AR_Transformer']:
+        n = 300
+        datasets = [f'sim{noise}_{n}' for noise in noise_list]
+        performance = retrieve_performance([f'MS_{basemodel}', f'{basemodel}'], datasets)
+        
+        delta_performance = np.array(performance[0]) - np.array(performance[1]) # n_datasets x n_seeds
+        plots.grouped_plot(
+            [delta_performance], group_labels=noise_list,
+            x_label='Individuality Strength', y_label='Gain of Multi-session Model', 
+            bar_labels=None, legend=None, error_mode='sem', 
+            save_dir='compare_models_sim', fig_name=f'multi_session_gain_{basemodel}',
+            ylim=[0, 0.1], capsize=8
+        )
+
+    # plot 3: compare all single session models
+    cfgs = experiments.compare_models_sim_all()
+    single_session_model_list = experiments.single_session_model_list
+    dataset_list = ['n = 150', 'n = 300']
+    performances = []
+    for i_data, dataset in enumerate(dataset_list):
+        performance_list = get_weighted_performance(
+            cfgs, len(single_session_model_list), len(dataset_list), [i_data], transpose=True,
+        )
+        performances.append(performance_list)
+    performances = [[performances[i][j] for i in range(len(dataset_list))] for j in range(len(single_session_model_list))]
+
+    plots.grouped_plot(
+        performances, group_labels=dataset_list,
+        bar_labels=single_session_model_list, colors=plots.get_model_colors(single_session_model_list),
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 1], save_dir='compare_models_sim', fig_name='compare_models_sim_single_session',
+        fig_size=(6, 4), style='bar', capsize=4,
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.9), error_mode='sem'
+    )
 
 def finetuning_analysis():
     cfgs = experiments.finetuning()
@@ -1032,22 +1059,20 @@ def compare_per_session_performance_analysis():
                 save_dir=save_dir, fig_name=f'per_session_performance_{model_x}_vs_{model_y}',
                 title=f'{dataset_name}: {model_x} vs {model_y}', figsize=(4.1, 4.1),
                 diag_line=True
-            )            
+            )
 
 def unit_embedding_analysis():
     model_list = ['POCO', ]
     dataset_list = ['zebrafish_pc', 'zebrafishahrens_pc', 'mice_pc', 'zebrafish', 'mice']
 
     cfgs = experiments.compare_models_multi_session()
-    for seed in cfgs.keys():
-        for cfg in cfgs[seed]:
-            cfg: NeuralPredictionConfig
-            if cfg.model_label in model_list and cfg.dataset_label[0] in dataset_list:
-                analyze_embedding.visualize_embedding(cfg, methods=['PCA', 'UMAP'])
+    for idx in range(len(cfgs[0])):
+        cfg: NeuralPredictionConfig = cfgs[0][idx]
+        if cfg.model_label in model_list and cfg.dataset_label[0] in dataset_list:
+            analyze_embedding.analyze_embedding_all_seeds(cfgs, idx, methods=['PCA', 'UMAP'])
 
     cfgs = experiments.compare_models_zebrafish_single_neuron()
-    for seed in cfgs.keys():
-        for cfg in cfgs[seed]:
-            cfg: NeuralPredictionConfig
-            if cfg.model_label in model_list and cfg.dataset_label[0] in dataset_list:
-                analyze_embedding.visualize_embedding(cfg, methods=['PCA', 'UMAP'])
+    for idx in range(len(cfgs[0])):
+        cfg: NeuralPredictionConfig = cfgs[0][idx]
+        if cfg.model_label in model_list and cfg.dataset_label[0] in dataset_list:
+            analyze_embedding.analyze_embedding_all_seeds(cfgs, idx, methods=['PCA', 'UMAP'])

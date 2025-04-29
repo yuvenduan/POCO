@@ -209,7 +209,7 @@ class DatasetConfig:
         self.n_neurons = 512 # only used for simulated dataset: the number of neurons used for training
         self.n_regions = 1
         self.ga = 2.0
-        self.sim_noise_std = 0
+        self.sim_noise_std = 0.1
         self.portion_observable_neurons = 1 # only used for simulated dataset: the portion of neurons that are observable
         self.train_data_length = 1000000
         self.sparsity = 1

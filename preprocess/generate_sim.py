@@ -14,7 +14,7 @@ def run(
     n = 500, # number of neurons in each region
     ga = 2.0, # chaos factor
     noise_std = 0, # noise standard deviation,
-    T = 8192 * 0.01 * 5, # 32768 steps
+    T = 4096 * 0.01 * 5, # 32768 steps
     sparsity = 1,
     seed = 0,
     template_connectivity = None,
@@ -55,20 +55,24 @@ def save_sim_activity():
 
     os.makedirs(SIM_DIR, exist_ok=True)
 
-    total_sims = 2 * 4 * 4 * 4
+    for n in [150, 300]:
+        for tseed in range(8, 16):
+            np.random.seed(n + tseed)
+            template = np.random.randn(n, n)
+            for noise_std in [0]:
+                for seed in range(1):
+                    run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed, noise_std=0.1)
+
+    return
+    total_sims = 8 * 4 * 16
     cur = 0
 
-    for n in [200, 400]:
-        for tseed in range(4):
+    for n in [300]:
+        for tseed in range(8):
             np.random.seed(n + tseed)
             template = np.random.randn(n, n)
             for noise_std in [0, 0.05, 0.5, 1]:
-                for seed in range(4):
-                    run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed)
+                for seed in range(16):
+                    run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed, noise_std=0.1)
                     cur += 1
                     print(f'Finished {cur}/{total_sims} sims')
-
-    return
-    for n in [128, 512]:
-        for seed in range(4):
-            run(mode=1, n=n, ga=2.0, noise_std=0, seed=seed)

@@ -5,7 +5,10 @@
       "data/",
       "experiments/",
       "figures/",
-      "sbatch/"
+      "sbatch/",
+      "zapbench_scripts/experiments/",
+      "zapbench_scripts/figures/",
+      "zapbench_scripts/sbatch/",
     ],
     "typeCheckingMode": "off"
 }

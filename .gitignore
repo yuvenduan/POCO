@@ -3,4 +3,6 @@ data/*
 backup/*
 sbatch/*
 experiments/*
+zapbench_scripts/experiments/*
+zapbench_scripts/sbatch/*
 figures/*

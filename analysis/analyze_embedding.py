@@ -35,27 +35,59 @@ def reduce(data: np.ndarray, method: str) -> np.ndarray:
     else:
         raise ValueError(f"Unknown method {method}")
 
-def compute_distance_matrix(data: np.ndarray, indices: np.ndarray, n_classes: int) -> np.ndarray:
+def compute_distance_matrix(all_data: np.ndarray, session_start, all_indices: np.ndarray, n_classes: int) -> np.ndarray:
+    """
+    Compute the distance matrix between different classes
+
+    :param all_data: (n_units, n_features)
+    :param session_start: list of indices that separate different sessions, should start with 0, n_sessions = len(session_start) - 1 
+        distance is computed within each session, then averaged
+        if session_start is None, distance is computed across all data
+    :param indices: (n_units, ) class labels
+    :param n_classes: number of classes
+    :return: two distance matrices, one for euclidean distance and one for cosine similarity
+    """
+
+    if session_start is None:
+        session_start = [0, len(all_data)]
+    n_sessions = len(session_start) - 1
+
+    weights = np.zeros((n_classes, n_classes))
     D_E = np.zeros((n_classes, n_classes)) # euclidean distance
     D_C = np.zeros((n_classes, n_classes)) # cosine similarity
-    for i in range(n_classes):
-        for j in range(n_classes):
-            A = data[indices == i + 1]
-            B = data[indices == j + 1]
-            dist_e = np.linalg.norm(A[:, None] - B[None, :], axis=2) # n * m
-            dist_c = np.dot(A, B.T) / (np.linalg.norm(A, axis=1)[:, None] * np.linalg.norm(B, axis=1)[None, :]) # n * m
-            # exclude self distance
-            if i == j:
-                D_E[i, i] = dist_e[dist_e > 1e-6].mean()
-                D_C[i, i] = dist_c[dist_c < 1 - 1e-5].mean()
-                assert (dist_e <= 1e-6).sum() == A.shape[0], "are there identical embeddings?"
-                assert (dist_c >= 1 - 1e-5).sum() == A.shape[0], "are there identical embeddings?"
-            else:
-                D_E[i, j] = dist_e.mean()
-                D_C[i, j] = dist_c.mean()
-                D_E[j, i] = D_E[i, j]
-                D_C[j, i] = D_C[i, j]
+
+    for i_session in range(n_sessions):
+        start = session_start[i_session]
+        end = session_start[i_session + 1]
+
+        data = all_data[start: end]
+        indices = all_indices[start: end]
+
+        for i in range(n_classes):
+            for j in range(n_classes):
+                A = data[indices == i + 1]
+                B = data[indices == j + 1]
+                dist_e = np.linalg.norm(A[:, None] - B[None, :], axis=2) # n * m
+                dist_c = np.dot(A, B.T) / (np.linalg.norm(A, axis=1)[:, None] * np.linalg.norm(B, axis=1)[None, :]) # n * m
+                # exclude self distance
+                if i == j:
+                    D_E[i, i] += dist_e[dist_e > 1e-6].sum()
+                    D_C[i, i] += dist_c[dist_c < 1 - 1e-5].sum()
+                    weights[i, i] += len(A) * (len(A) - 1)
+                    assert (dist_e <= 1e-6).sum() == A.shape[0], "are there identical embeddings?"
+                    assert (dist_c >= 1 - 1e-5).sum() == A.shape[0], "are there identical embeddings?"
+                else:
+                    D_E[i, j] += dist_e.sum()
+                    D_C[i, j] += dist_c.sum()
+                    D_E[j, i] = D_E[i, j]
+                    D_C[j, i] = D_C[i, j]
+                    weights[i, j] += len(A) * len(B)
+                    weights[j, i] = weights[i, j]
     
+    # normalize by number of samples
+    D_E /= weights
+    D_C /= weights
+
     return D_E, D_C
 
 def plot_distance_matrices(D_E: np.ndarray, D_C: np.ndarray, names: list, figure_dir: str, figure_name: str):
@@ -145,12 +177,18 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
         region_ids = np.concatenate(dataset.unit_types) + 1
     else:
         raise ValueError(f"Unknown dataset {dataset}")
+    
+    return_dict = {}
 
     # plot 1: average distance between brain regions
-    if region_ids is not None and dataset_label in ['mice']: # zebrafish is not supported yet, too large!
+    if region_ids is not None and dataset_label in ['mice', 'zebrafish']:
         n_classes = len(region_names)
-        D_E, D_C = compute_distance_matrix(unit_embed, region_ids, n_classes)
+        D_E, D_C = compute_distance_matrix(unit_embed, session_start, region_ids, n_classes)
         plot_distance_matrices(D_E, D_C, region_names, figure_dir, "distance_matrix.pdf")
+
+        return_dict['unit_D_E'] = D_E
+        return_dict['unit_D_C'] = D_C
+        return_dict['region_names'] = region_names
 
     for i in range(sessiom_embed.shape[0]):
         # plot 2: visualize unit embedding
@@ -182,7 +220,7 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
 
             plt.tight_layout()
             os.makedirs(osp.join(figure_dir, f'session_{i}'), exist_ok=True)
-            plt.savefig(osp.join(figure_dir, f'session_{i}', f'unit_embedding_{method}.png'))
+            plt.savefig(osp.join(figure_dir, f'session_{i}', f'unit_embedding_{method}.pdf'))
             plt.close()
 
             print(f"Animal {i} unit embedding visualization saved for {method}", flush=True)
@@ -199,14 +237,22 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
         session_classes = np.array([1] + [2] * 5 + [3] * 4 + [4] * 2)
         class_names = ['M1', 'M2', 'M3', 'M4']
     else:
-        return
+        return return_dict
 
     colors = [f'C{i}' for i in session_classes]
 
+    # correct the session embedding by adding the mean of the unit embedding, in each session
+    for i in range(sessiom_embed.shape[0]):
+        sessiom_embed[i] += np.mean(unit_embed[session_start[i]: session_start[i + 1]], axis=0)
+
     if class_names is not None:
         n_classes = len(class_names)
-        D_E, D_C = compute_distance_matrix(sessiom_embed, session_classes, n_classes)
+        D_E, D_C = compute_distance_matrix(sessiom_embed, None, session_classes, n_classes)
         plot_distance_matrices(D_E, D_C, class_names, figure_dir, "session_distance_matrix.pdf")
+
+        return_dict['session_D_E'] = D_E
+        return_dict['session_D_C'] = D_C
+        return_dict['session_names'] = class_names
     
     for method in methods:
         reduced_session_embed = reduce(sessiom_embed, method)
@@ -224,3 +270,35 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
         plt.tight_layout()
         plt.savefig(osp.join(figure_dir, f'session_embedding_{method}.pdf'))
         plt.close()
+
+    return return_dict
+
+def analyze_embedding_all_seeds(cfgs, idx, methods=['PCA', 'TSNE', 'UMAP'], sub_dir_name=None):
+    """
+    Analyze the embedding of all seeds
+    """
+
+    return_dict_list = []
+
+    for seed in cfgs.keys():
+        cfg: NeuralPredictionConfig = cfgs[seed][idx]
+
+        if sub_dir_name is None:
+            sub_dir_name = cfg.dataset_label[0]
+
+        return_dict = visualize_embedding(cfg, methods, sub_dir_name)
+        return_dict_list.append(return_dict)
+
+    figure_dir = osp.join(FIG_DIR, 'embedding', sub_dir_name)
+
+    if 'unit_D_E' in return_dict_list[0]:
+        unit_D_E = np.mean([return_dict['unit_D_E'] for return_dict in return_dict_list], axis=0)
+        unit_D_C = np.mean([return_dict['unit_D_C'] for return_dict in return_dict_list], axis=0)
+        region_names = return_dict_list[0]['region_names']
+        plot_distance_matrices(unit_D_E, unit_D_C, region_names, figure_dir, "average_distance_matrix.pdf")
+
+    if 'session_D_E' in return_dict_list[0]:
+        session_D_E = np.mean([return_dict['session_D_E'] for return_dict in return_dict_list], axis=0)
+        session_D_C = np.mean([return_dict['session_D_C'] for return_dict in return_dict_list], axis=0)
+        class_names = return_dict_list[0]['session_names']
+        plot_distance_matrices(session_D_E, session_D_C, class_names, figure_dir, "average_session_distance_matrix.pdf")

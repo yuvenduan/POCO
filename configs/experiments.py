@@ -12,6 +12,53 @@ from configs.config_global import EXP_TYPES
 from utils.config_utils import vary_config
 from configs.configure_model_datasets import configure_models, configure_dataset
 
+def all_experiments():
+    # only a sanity check that all functions return configs correctly
+    # single session models
+    compare_models_zebrafish_pc_single_session()
+    compare_models_celegans_single_session()
+    compare_models_mice_single_session()
+    compare_models_celegans_flavell_single_session()
+    compare_models_zebrafish_ahrens_single_session()
+
+    # multi session models
+    compare_models_zebrafish_single_neuron()
+    compare_models_multi_session()
+    compare_models_multi_species()
+    zebrafish_multi_datasets()
+
+    # simulations
+    compare_models_sim_multi_session()
+    compare_models_sim()
+    compare_models_sim_all()
+
+    # compare number of sessions / training length
+    compare_models_multiple_splits_celegans_flavell()
+    compare_models_multiple_splits_mice()
+    compare_models_multiple_splits_zebrafish()
+    compare_train_length_celegans_flavell()
+    compare_train_length_mice()
+    compare_train_length_zebrafish()
+
+    # compare context window / dataset filter
+    compare_context_window_length()
+    compare_dataset_filter()
+    compare_large_dataset_filter()
+
+    # finetuning
+    basemodels()
+    finetuning()
+    compare_pretraining_dataset()
+
+    # try different model params
+    poyo_compare_embedding_mode()
+    poyo_compare_compression_factor()
+    poyo_compare_num_latents()
+    compare_hidden_size()
+    poyo_compare_num_layers()
+    poyo_compare_num_heads()
+    ablations()
+
 def poco_test(): # sanity check: different versions of poco should give the same result
     config = NeuralPredictionConfig()
     config.experiment_name = 'poco_test'
@@ -57,7 +104,7 @@ large_dataset_list = ['zebrafishahrens', 'zebrafish', ]
 
 # POYO experiments: poyo_compare_embedding_mode poyo_compare_compression_factor poyo_compare_num_latents poyo_compare_hidden_size poyo_compare_num_layers poyo_compare_num_heads
 # core experiments (single session): compare_models_zebrafish_pc_single_session compare_models_celegans_single_session compare_models_mice_single_session compare_models_zebrafish_ahrens_single_session compare_models_celegans_flavell_single_session
-# core experiments (others): compare_models_multi_session compare_models_multi_species zebrafish_multi_datasets compare_models_sim_multi_session compare_models_sim compare_models_zebrafish_single_neuron
+# core experiments (others): compare_models_multi_session compare_models_multi_species zebrafish_multi_datasets compare_models_zebrafish_single_neuron compare_models_sim_multi_session compare_models_sim
 # compare dataset size: compare_models_multiple_splits_celegans_flavell compare_models_multiple_splits_mice compare_models_multiple_splits_zebrafish compare_train_length_celegans_flavell compare_train_length_mice compare_train_length_zebrafish
 
 def compare_dataset_filter():
@@ -352,7 +399,7 @@ def compare_models_multiple_splits_celegans_flavell():
     config_ranges = OrderedDict()
     config_ranges['dataset_filter'] = ['none', 'lowpass', ]
     config_ranges['dataset_label'] = create_splits(40, [1, 2, 3, 5, 8, 12, 20, 40], 'celegansflavell')
-    config_ranges['model_label'] = training_set_size_models
+    config_ranges['model_label'] = ['POCO', 'TexFilter']
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -365,7 +412,7 @@ def compare_models_multiple_splits_mice():
     config_ranges = OrderedDict()
     config_ranges['dataset_filter'] = ['none', 'lowpass', ]
     config_ranges['dataset_label'] = create_splits(12, [1, 2, 3, 4, 6, 12], 'mice')
-    config_ranges['model_label'] = training_set_size_models
+    config_ranges['model_label'] = ['POCO', 'TexFilter']
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -379,7 +426,7 @@ def compare_models_multiple_splits_zebrafish():
     config_ranges['dataset_label'] = \
         create_splits(19, [1, 2, 3, 5, 10, 19], 'zebrafish') + \
         create_splits(19, [1, 2, 3, 5, 10, 19], 'zebrafish_pc')
-    config_ranges['model_label'] = training_set_size_models
+    config_ranges['model_label'] = ['POCO', 'TexFilter']
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -442,7 +489,7 @@ def compare_models_zebrafish_single_neuron(): # need h100
     configs = configure_dataset(configs)
     return configs
 
-selected_models = ['POCO', 'Latent_PLRNN', ]
+selected_models = ['POCO', 'MultiAR_Transformer', ]
 
 def compare_models_sim_multi_session():
     config = NeuralPredictionConfig()
@@ -450,9 +497,9 @@ def compare_models_sim_multi_session():
 
     config_ranges = OrderedDict()
     config_ranges['connectivity_noise'] = [0, 0.05, 0.5, 1]
-    config_ranges['dataset_label'] = [f'sim_{n}' for n in [200, 400]]
+    config_ranges['dataset_label'] = [f'sim_{n}' for n in [300]]
     config_ranges['model_label'] = selected_models
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=8)
 
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -465,10 +512,25 @@ def compare_models_sim():
 
     config_ranges = OrderedDict()
     config_ranges['connectivity_noise'] = [0, 0.05, 0.5, 1]
-    config_ranges['dataset_label'] = [f'sim_{n}-{seed}' for n in [200, 400] for seed in range(4)]
+    config_ranges['dataset_label'] = [f'sim_{n}-{seed}' for n in [300] for seed in range(16)]
     config_ranges['model_label'] = selected_models
 
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=8)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_sim_all():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_sim'
+    config.max_batch = 5000
+
+    config_ranges = OrderedDict()
+    config_ranges['connectivity_noise'] = [0,]
+    config_ranges['dataset_label'] = [f'sim_{n}-{seed}' for n in [150, 300] for seed in range(1)]
+    config_ranges['model_label'] = single_session_model_list
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=16)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
     return configs

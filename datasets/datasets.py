@@ -611,7 +611,7 @@ class Simulation(NeuralDataset):
         all_activities = []
         all_unit_types = []
 
-        for seed in range(4):
+        for seed in range(16):
             if config.session_ids != None and seed not in config.session_ids:
                 continue
             if config.animal_ids != None and seed not in config.animal_ids:
