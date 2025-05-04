@@ -20,7 +20,7 @@ CELEGANS_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_zimmer')
 CELEGANS_FLAVELL_RAW_DIR = os.path.join(DATA_DIR, 'raw_celegans_flavell')
 MICE_RAW_DIR = os.path.join(DATA_DIR, 'raw_mice')
 MICE_BRAIN_AREAS = ['PPC', 'RSP', 'V1', 'M2']
-ZEBRAFISH_BRAIN_AREAS = ['LHb', 'MHb', 'ctel', 'dthal', 'gc', 'raphe', 'tel', 'vent', 'vthal']
+ZEBRAFISH_BRAIN_AREAS = ['LHb', 'MHb', 'gc', 'raphe', 'ctel', 'vent', 'dthal', 'vthal', ]
 
 N_ZEBRAFISH_SESSIONS = 19
 N_ZEBRAFISH_AHNRENS_SESSIONS = 15

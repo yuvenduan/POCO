@@ -65,7 +65,6 @@ def configure_dataset(configs: dict):
                     
                 elif dataset_name == 'zebrafishahrens' or dataset_name == 'zebrafishjain':
                     config.dataset.append(dataset_name)
-                    dataset_config.filter_type = 'lowpass'
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 512
                     elif dataset_type == None:
@@ -94,7 +93,6 @@ def configure_dataset(configs: dict):
                 
                 elif dataset_name in ['celegans', 'celegansflavell']:
                     config.dataset.append(dataset_name)
-                    dataset_config.filter_type = 'lowpass'
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 100
                     elif dataset_type == None:
@@ -104,7 +102,6 @@ def configure_dataset(configs: dict):
                 
                 elif dataset_name == 'mice':
                     config.dataset.append('mice')
-                    dataset_config.filter_type = 'lowpass'
                     if dataset_type == 'pc':
                         dataset_config.pc_dim = 512
                     elif dataset_type == None:

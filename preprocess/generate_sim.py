@@ -55,20 +55,11 @@ def save_sim_activity():
 
     os.makedirs(SIM_DIR, exist_ok=True)
 
-    for n in [150, 300]:
-        for tseed in range(8, 16):
-            np.random.seed(n + tseed)
-            template = np.random.randn(n, n)
-            for noise_std in [0]:
-                for seed in range(1):
-                    run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed, noise_std=0.1)
-
-    return
     total_sims = 8 * 4 * 16
     cur = 0
 
     for n in [300]:
-        for tseed in range(8):
+        for tseed in range(8, 16):
             np.random.seed(n + tseed)
             template = np.random.randn(n, n)
             for noise_std in [0, 0.05, 0.5, 1]:
@@ -76,3 +67,12 @@ def save_sim_activity():
                     run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed, noise_std=0.1)
                     cur += 1
                     print(f'Finished {cur}/{total_sims} sims')
+
+    return
+    for n in [150, 300]:
+        for tseed in range(8, 16):
+            np.random.seed(n + tseed)
+            template = np.random.randn(n, n)
+            for noise_std in [0]:
+                for seed in range(1):
+                    run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed, noise_std=0.1)

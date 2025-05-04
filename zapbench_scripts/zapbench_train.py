@@ -332,6 +332,7 @@ parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
 parser.add_argument("--num_epochs", type=int, default=1, help="Number of epochs")
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
 parser.add_argument("--loss_fn", type=str, default='L1Loss', choices=["L1Loss", "MSELoss"], help="Loss function")
+parser.add_argument("--compression_factor", type=int, default=0, help="Compression factor for POCO model")
 args = parser.parse_args()
 # Seed setting
 random.seed(args.seed)
@@ -343,7 +344,10 @@ torch.cuda.manual_seed(args.seed)
 configs = NeuralPredictionConfig()
 configs.seq_length = args.context + pred_length
 configs.pred_length = pred_length
-configs.compression_factor = {4: 4, 48: 16, 256: 64}[args.context]
+if args.compression_factor > 0:
+  configs.compression_factor = args.compression_factor
+else:
+  configs.compression_factor = {4: 4, 48: 16, 256: 64}[args.context]
 input_size = 71721
 
 model_dir = os.path.join(args.save_dir, f"{args.model}_{args.context}_{args.lr}_{args.loss_fn}_{args.seed}")

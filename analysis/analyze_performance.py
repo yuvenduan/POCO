@@ -353,6 +353,21 @@ def compare_models(
         x_axis = np.arange(1, cfgs[0][0].pred_length + 1)
         data_list = [info[phase]['mean_mse_time'] for info in info_list]
 
+        name_dict = {
+            'zebrafish': 'Fish (Deisseroth)',
+            'zebrafish_pc': 'Fish PC (Deisseroth)',
+            'zebrafishahrens': 'Fish (Ahrens)',
+            'zebrafishahrens_pc': 'Fish PC (Ahrens)',
+            'zebrafishviren': 'Fish (Viren)',
+            'zebrafishviren_pc': 'Fish PC (Viren)',
+            'mice': 'Mice',
+            'mice_pc': 'Mice PC',
+            'celegans': 'Worms (Zimmer)',
+            'celegans_pc': 'Worms PC (Zimmer)',
+            'celegansflavell': 'Worms (Flavell)',
+            'celegansflavell_pc': 'Worms PC (Flavell)',
+        }
+
         error_plot(
             x_axis,
             data_list, 
@@ -361,7 +376,8 @@ def compare_models(
             fig_name=f'{phase}_time_performance_mse',
             x_label='Prediction Step',
             y_label='Mean Squared Error',
-            figsize=(5.5, 3),
+            title=name_dict[dataset_label],
+            figsize=(5, 3),
             colors=colors,
             xticks=(4, 8, 12, 16),
             legend_bbox_to_anchor=(1.05, 0.8),

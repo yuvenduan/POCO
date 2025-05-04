@@ -69,34 +69,50 @@ def compute_distance_matrix(all_data: np.ndarray, session_start, all_indices: np
                 B = data[indices == j + 1]
                 dist_e = np.linalg.norm(A[:, None] - B[None, :], axis=2) # n * m
                 dist_c = np.dot(A, B.T) / (np.linalg.norm(A, axis=1)[:, None] * np.linalg.norm(B, axis=1)[None, :]) # n * m
+                n, m = dist_e.shape
                 # exclude self distance
                 if i == j:
-                    D_E[i, i] += dist_e[dist_e > 1e-6].sum()
-                    D_C[i, i] += dist_c[dist_c < 1 - 1e-5].sum()
-                    weights[i, i] += len(A) * (len(A) - 1)
-                    assert (dist_e <= 1e-6).sum() == A.shape[0], "are there identical embeddings?"
-                    assert (dist_c >= 1 - 1e-5).sum() == A.shape[0], "are there identical embeddings?"
+                    D_E[i, i] += dist_e.sum() - dist_e.diagonal().sum()
+                    D_C[i, i] += dist_c.sum() - dist_c.diagonal().sum()
+                    weights[i, i] += n * (m - 1)
                 else:
                     D_E[i, j] += dist_e.sum()
                     D_C[i, j] += dist_c.sum()
-                    D_E[j, i] = D_E[i, j]
-                    D_C[j, i] = D_C[i, j]
-                    weights[i, j] += len(A) * len(B)
-                    weights[j, i] = weights[i, j]
+                    weights[i, j] += n * m
     
     # normalize by number of samples
     D_E /= weights
     D_C /= weights
 
+    # normalize by max / min for each row
+    D_E = (D_E - np.min(D_E, axis=1)[:, None]) / (np.max(D_E, axis=1) - np.min(D_E, axis=1))[:, None]
+    D_C = (D_C - np.min(D_C, axis=1)[:, None]) / (np.max(D_C, axis=1) - np.min(D_C, axis=1))[:, None]
+
     return D_E, D_C
 
-def plot_distance_matrices(D_E: np.ndarray, D_C: np.ndarray, names: list, figure_dir: str, figure_name: str):
+def plot_distance_matrices(D_E: np.ndarray, D_C: np.ndarray, names: list, figure_dir: str, figure_name: str, plot_names=None):
     # plot distance matrix
     n_classes = len(names)
 
+    """
+    if names[0] == ZEBRAFISH_BRAIN_AREAS[0]:
+        plot_names = ['LHb', 'MHb', 'ctel', 'tel', 'dthal', 'vthal', 'gc', 'raphe', 'vent', ]
+        # find a permutation of the names that matches the plot_names
+        perm = np.zeros(n_classes, dtype=int)
+        for i, name in enumerate(names):
+            for j, plot_name in enumerate(plot_names):
+                if name == plot_name:
+                    perm[i] = j
+                    break
+        assert len(np.unique(perm)) == n_classes, "not all names are in plot_names"
+        D_E = D_E[perm][:, perm]
+        D_C = D_C[perm][:, perm]
+        names = plot_names
+    """
+
     fig, ax = plt.subplots(1, 2, figsize=(8, 4))
-    im = ax[0].imshow(D_E, cmap='hot', interpolation='nearest')
-    ax[0].set_title("Euclidean Distance")
+    im = ax[0].imshow(D_E, cmap='coolwarm', interpolation='nearest')
+    ax[0].set_title("Normalized Euclidean Distance")
     ax[0].set_xticks(np.arange(n_classes))
     ax[0].set_yticks(np.arange(n_classes))
     ax[0].set_xticklabels(names, rotation=45)
@@ -104,7 +120,7 @@ def plot_distance_matrices(D_E: np.ndarray, D_C: np.ndarray, names: list, figure
     fig.colorbar(im, ax=ax[0])
 
     im = ax[1].imshow(D_C, cmap='coolwarm', interpolation='nearest')
-    ax[1].set_title("Cosine Similarity")
+    ax[1].set_title("Normalized Cosine Similarity")
     ax[1].set_xticks(np.arange(n_classes))
     ax[1].set_yticks(np.arange(n_classes))
     ax[1].set_xticklabels(names, rotation=45)
@@ -155,13 +171,18 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
         dataset = Zebrafish(cfg.dataset_config[dataset_label])
         s = 3
         region_names = ZEBRAFISH_BRAIN_AREAS
+        n_regions = len(region_names)
 
         for unit_type in dataset.unit_types:
             session_start.append(session_start[-1] + len(unit_type))
-            colors.append(['C' + str(i if i <= 9 else i - 9) for i in unit_type])
+            colors.append(['C' + str(i if i <= n_regions else i - n_regions) for i in unit_type])
             masks.append(unit_type > 0)
         region_ids = np.concatenate(dataset.unit_types)
-        region_ids[region_ids > 9] = region_ids[region_ids > 9] - 9
+        region_ids[region_ids > n_regions] = region_ids[region_ids > n_regions] - n_regions
+
+        # print size of each region
+        for i, region in enumerate(region_names):
+            print(f"Region {region} size: {np.sum(region_ids == i + 1)}")
 
     elif dataset_label == 'mice':
         session_start = [0, ]
@@ -201,7 +222,11 @@ def visualize_embedding(cfg: NeuralPredictionConfig, methods: list = ['PCA', 'TS
             else:
                 color = colors[i]
 
-            plt.figure(figsize=(4.5, 3.5))
+            if dataset_config.pc_dim is not None:
+                plt.figure(figsize=(4.2, 3.5))
+            else:
+                plt.figure(figsize=(3.5, 3.5))
+
             plt.scatter(reduced_unit_embed[:, 0], reduced_unit_embed[:, 1], c=color, s=s)
             plt.title(f"Unit Embedding ({method})")
             plt.xlabel("Dim 1")

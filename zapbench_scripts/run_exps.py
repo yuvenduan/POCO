@@ -2,14 +2,15 @@ import os
 import itertools
 
 # Parameters to iterate over
-seeds = [0, 1, 2]
-contexts = [4, 256]
-models = ["poco", "linear"]
+seeds = [0, 1, ]
+contexts = [256, ]
+models = ["poco", ]
 save_dir = "./experiments"
-batch_size = 16
+batch_size = 8
 num_epochs = 50
 lr_list = [1e-3, ]
 loss_fn_list = ["L1Loss", ]
+compression_factor_list = [4, 16, 64, 128, 256]
 
 # SLURM job header (template)
 slurm_header_template = """#!/bin/bash
@@ -31,7 +32,7 @@ conda activate zapbench
 os.makedirs("sbatch", exist_ok=True)
 
 # Generate and submit job scripts
-for seed, context, model, lr, loss_fn in itertools.product(seeds, contexts, models, lr_list, loss_fn_list):
+for seed, context, model, lr, loss_fn, cf in itertools.product(seeds, contexts, models, lr_list, loss_fn_list, compression_factor_list):
     # Choose partition based on model
     partition = "kempner_h100" if model == "poco" else "kempner"
     slurm_header = slurm_header_template.format(partition=partition)
@@ -49,6 +50,7 @@ for seed, context, model, lr, loss_fn in itertools.product(seeds, contexts, mode
         f" --num_epochs {num_epochs}"
         f" --lr {lr}"
         f" --loss_fn {loss_fn}"
+        f" --compression_factor {cf}"
     )
     
     with open(job_script_path, "w") as f:

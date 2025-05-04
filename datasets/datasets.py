@@ -15,7 +15,7 @@ from configs.configs import DatasetConfig
 from configs.config_global import \
     ZEBRAFISH_PROCESSED_DIR, ZEBRAFISH_STIM_PROCESSED_DIR, ZEBRAFISH_AHRENS_PROCESSED_DIR, N_ZEBRAFISH_AHNRENS_SESSIONS, \
     CELEGANS_PROCESSED_DIR, N_CELEGANS_SESSIONS, CELEGANS_FLAVELL_PROCESSED_DIR, N_CELEGANS_FLAVELL_SESSIONS, \
-    SIM_DIR, MICE_PROCESSED_DIR, ZEBRAFISH_JAIN_PROCESSED_DIR
+    SIM_DIR, MICE_PROCESSED_DIR, ZEBRAFISH_JAIN_PROCESSED_DIR, ZEBRAFISH_BRAIN_AREAS
 from utils.data_utils import get_exp_names, get_stim_exp_names, get_mice_sessions
 
 class NeuralDataset(tud.Dataset):
@@ -319,10 +319,7 @@ class NeuralDataset(tud.Dataset):
 
 class Zebrafish(NeuralDataset):
 
-    all_regions = [
-        'in_l_LHb', 'in_l_MHb', 'in_l_ctel', 'in_l_dthal', 'in_l_gc', 'in_l_raphe', 'in_l_tel', 'in_l_vent', 'in_l_vthal',
-        'in_r_LHb', 'in_r_MHb', 'in_r_ctel', 'in_r_dthal', 'in_r_gc', 'in_r_raphe', 'in_r_tel', 'in_r_vent', 'in_r_vthal'
-    ]
+    all_regions = [f'in_{lr}_{region}' for lr in ['l', 'r'] for region in ZEBRAFISH_BRAIN_AREAS]
 
     def get_activity_unit_id(self, filename, config: DatasetConfig):
         """
