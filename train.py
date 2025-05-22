@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
+import time
 
 from configs.config_global import LOG_LEVEL, NP_SEED, TCH_SEED, USE_CUDA, DATA_DIR
 from configs.configs import BaseConfig, SupervisedLearningBaseConfig, NeuralPredictionConfig
@@ -46,6 +47,7 @@ def evaluate_performance(
     """
 
     net.eval()
+    start = time.time()
     with torch.no_grad():
 
         test_data.reset()
@@ -70,6 +72,8 @@ def evaluate_performance(
             all_loss += dataset_loss * config.mod_w[i_tloader]
         avg_testloss = all_loss / sum(config.mod_w)
     
+    eval_time = time.time() - start
+    logging.info('Avg inference time per batch: {:.1f} ms'.format(eval_time * 1000 / len(test_data.data_loaders[0].dataset) * config.batch_size))
     logger.log_tabular('TestLoss', avg_testloss)
     testloss_list.append(avg_testloss)
 
@@ -121,12 +125,15 @@ def model_train(config: NeuralPredictionConfig):
     It then trains the network and logs the performance.
     """
 
+    total_train_time = 0.0
+    start_time = time.time()
+
     np.random.seed(NP_SEED + config.seed)
     torch.manual_seed(TCH_SEED + config.seed)
     random.seed(config.seed)
     # set the torch hub directory
     torch.hub.set_dir(osp.join(DATA_DIR, 'torch_hub'))
-    start_time = datetime.now()
+    train_start_time = datetime.now()
 
     if USE_CUDA:
         logging.info("training with GPU")
@@ -234,8 +241,11 @@ def model_train(config: NeuralPredictionConfig):
         if break_flag:
             break
 
+    total_train_time += time.time() - start_time
+    logging.info('Total training time: {:.2f} mins'.format(total_train_time / 60))
+
     task_func.after_training_callback(config, net)
-    log_complete(config.save_path, start_time)
+    log_complete(config.save_path, train_start_time)
 
     if config.perform_test:
         model_eval(config)

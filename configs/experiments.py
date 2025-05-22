@@ -60,11 +60,11 @@ def all_experiments():
 def poco_test(): # sanity check: different versions of poco should give the same result
     config = NeuralPredictionConfig()
     config.experiment_name = 'test'
-    config.max_batch = 5000
+    config.max_batch = 1000
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = dataset_list
-    config_ranges['model_label'] = ['POCOtest', 'POCO', 'NLinear', 'Linear']
+    config_ranges['dataset_label'] = ['zebrafishahrens']
+    config_ranges['model_label'] = ['POCOtest', ]
 
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
     configs = configure_models(configs)
@@ -223,13 +223,41 @@ def poyo_compare_num_latents():
     configs = configure_dataset(configs)
     return configs
 
+def compare_wd():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_wd'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list
+    config_ranges['model_label'] = ['POCO', 'NLinear', 'TexFilter']
+    config_ranges['wdecay'] = [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 10]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_lr():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_lr'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list
+    config_ranges['model_label'] = ['POCO', 'NLinear', 'TexFilter']
+    config_ranges['lr'] = [1e-4, 3e-4, 1e-3, 5e-3, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
 def compare_hidden_size():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_hidden_size'
 
     config_ranges = OrderedDict()
     config_ranges['dataset_label'] = dataset_list
-    config_ranges['model_label'] = ['POCO', 'MLP', ]
+    config_ranges['model_label'] = ['POCO', ]
     config_ranges['decoder_hidden_size'] = [8, 32, 128, 512, 1024, 1536, ]
 
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
@@ -263,7 +291,7 @@ def poyo_compare_num_layers():
 
     config_ranges = OrderedDict()
     config_ranges['dataset_label'] = dataset_list
-    config_ranges['decoder_num_layers'] = [0, 1, 4, 8, ]
+    config_ranges['decoder_num_layers'] = [1, 4, 8, ]
 
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
     configs = configure_models(configs)
@@ -432,6 +460,36 @@ def compare_models_multiple_splits_zebrafish():
     configs = configure_dataset(configs)
     return configs
 
+def compare_models_multiple_splits_zebrafish_ahrens():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multiple_splits'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_filter'] = ['none', ]
+    config_ranges['dataset_label'] = \
+        create_splits(15, [1, 2, 3, 5, 8, 15], 'zebrafishahrens') + \
+        create_splits(15, [1, 2, 3, 5, 8, 15], 'zebrafishahrens_pc')
+    config_ranges['model_label'] = ['POCO', 'TexFilter']
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_models_multiple_splits_zebrafish_ahrens_lowpass():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multiple_splits'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_filter'] = ['lowpass', ]
+    config_ranges['dataset_label'] = \
+        create_splits(15, [1, 2, 3, 5, 8, 15], 'zebrafishahrens') + \
+        create_splits(15, [1, 2, 3, 5, 8, 15], 'zebrafishahrens_pc')
+    config_ranges['model_label'] = ['POCO', 'TexFilter']
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
 def compare_train_length_celegans_flavell():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_train_length'
@@ -504,7 +562,7 @@ def compare_models_zebrafish_single_neuron(): # need h100
     configs = configure_dataset(configs)
     return configs
 
-selected_models = ['POCO', 'MultiAR_Transformer', ]
+selected_models = ['POCO', ]
 
 def compare_models_sim_multi_session():
     config = NeuralPredictionConfig()
@@ -514,7 +572,7 @@ def compare_models_sim_multi_session():
     config_ranges['connectivity_noise'] = [0, 0.05, 0.5, 1]
     config_ranges['dataset_label'] = [f'sim_{n}' for n in [300]]
     config_ranges['model_label'] = selected_models
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=8)
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=16)
 
     configs = configure_models(configs)
     configs = configure_dataset(configs)
@@ -530,7 +588,7 @@ def compare_models_sim():
     config_ranges['dataset_label'] = [f'sim_{n}-{seed}' for n in [300] for seed in range(16)]
     config_ranges['model_label'] = selected_models
 
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=8)
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=16)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
     return configs
@@ -606,6 +664,28 @@ def finetuning(): # compare finetuning (all), only train embedding, train from s
                 elif config.model_label == 'Pre-POCO(UI+MLP)':
                     config.freeze_backbone = True
                 config.model_label = 'POCO'
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def finetuning_test_time():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'finetuning_test'
+    config.log_every = 50
+    config.max_batch = 200
+    config.batch_size = 1
+
+    config.load_path = os.path.join(basemodels()[0][0].save_path, 'net_best.pth')
+    config.freeze_backbone = True
+    config.freeze_conditioned_net = True
+    config.finetuning = True
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_filter'] = ['none', ]
+    config_ranges['dataset_label'] = [f'zebrafish_pc-{id}' for id in [4, ]]
+    config_ranges['model_label'] = ['POCO', ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
 
     configs = configure_models(configs)
     configs = configure_dataset(configs)

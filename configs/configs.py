@@ -137,7 +137,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.conv_stride = 4
 
         # latent model config
-        self.tf_interval = 5 
+        self.tf_interval = 4 
         self.hidden_size
         self.rnn_type # only support RNNs without input: CTRNN, PLRNN, ...
         self.latent_to_ob = 'linear' # or 'identity'

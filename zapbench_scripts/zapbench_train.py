@@ -145,8 +145,10 @@ def get_infer_source(num_timesteps_context):
 
   return infer_source
 
-def eval(model, infer_source, num_timesteps_context):
+def eval(model: nn.Module, infer_source, num_timesteps_context):
+  """Evaluate the model on the test set."""
 
+  model.eval()
   if isinstance(model, nn.Module):
     f = get_f_model(model)
   else:
@@ -182,16 +184,20 @@ def get_average(loss_dict: dict):
 """Define the training loop!"""
 
 def train(
-    model: nn.Module, context_length: int, 
-    seed: int = 0, save_dir: str = None, 
-    batch_size: int = 4, num_epochs: int = 1,
-    lr = 1e-3, loss_fn = 'L1Loss',
+  model: nn.Module,
+  context_length: int,
+  seed: int = 0,
+  save_dir: str = None,
+  batch_size: int = 4,
+  num_epochs: int = 1,
+  lr: float = 1e-3,
+  loss_fn: str = 'L1Loss',
+  weight_decay: float = 0.0,  # NEW
 ):
-
   device = 'cuda' if torch.cuda.is_available() else 'cpu'
   model.to(device)
 
-  optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+  optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, amsgrad=True)
   log_every = 100
   i_iter = 0
 
@@ -214,6 +220,7 @@ def train(
   os.makedirs(save_dir, exist_ok=True)
 
   for element in data_loader:
+    model.train()
     x = element['series_input']
     y = element['series_output']
     x = torch.from_numpy(x).to(device)
@@ -253,17 +260,12 @@ def train(
 
           eval_losses.append(val_criterion(pred, y).item())
         eval_loss = np.mean(eval_losses)
-        model.train()
 
       print(f'Train iteration {i_iter}, train loss {mv_avg_train_loss:.4f}, eval loss {eval_loss:.4f}')
       if eval_loss < min_eval_loss:
         min_eval_loss = eval_loss
         if save_dir is not None:
           torch.save(model.state_dict(), os.path.join(save_dir, f'best.pt'))
-
-      mae = eval(model, infer_source, context_length)
-      avg_mae = get_average(mae)
-      print(f'Average test set MAE: {avg_mae[[0, 1, 3, 7, 15, 31]]}')
 
   model.load_state_dict(torch.load(os.path.join(save_dir, f'best.pt')))
   mae = eval(model, infer_source, context_length)
@@ -321,8 +323,11 @@ import os as os
 import random
 import argparse
 
-os.makedirs(save_dir, exist_ok=True)
+# Constants
+pred_length = 32
+input_size = 71721
 
+# Parse arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, required=True, help="Random seed")
 parser.add_argument("--context", type=int, required=True, help="Context length (e.g., 4 or 256)")
@@ -333,38 +338,59 @@ parser.add_argument("--num_epochs", type=int, default=1, help="Number of epochs"
 parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
 parser.add_argument("--loss_fn", type=str, default='L1Loss', choices=["L1Loss", "MSELoss"], help="Loss function")
 parser.add_argument("--compression_factor", type=int, default=0, help="Compression factor for POCO model")
+parser.add_argument("--weight_decay", type=float, default=0.0001, help="Weight decay for optimizer")
+parser.add_argument("--poyo_unit_dropout", type=float, default=0.0, help="Dropout for POYO units")
+parser.add_argument("--conditioning_dim", type=int, default=1024, help="Conditioning dimension (used in some models)")
+parser.add_argument("--decoder_context_length", type=int, default=0, help="Decoder context length (used in some models)")
 args = parser.parse_args()
-# Seed setting
+
+# Set random seeds
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 torch.cuda.manual_seed(args.seed)
 
-# Config setup
+# Prepare config
 configs = NeuralPredictionConfig()
 configs.seq_length = args.context + pred_length
 configs.pred_length = pred_length
+configs.conditioning_dim = args.conditioning_dim
+configs.poyo_unit_dropout = args.poyo_unit_dropout
+
 if args.compression_factor > 0:
-  configs.compression_factor = args.compression_factor
+    configs.compression_factor = args.compression_factor
 else:
-  configs.compression_factor = {4: 4, 48: 16, 256: 64}[args.context]
-input_size = 71721
+    configs.compression_factor = {4: 4, 48: 16, 256: 64}[args.context]
+configs.rotary_attention_tmax = {4: 50, 256: 400}[args.context]
 
-model_dir = os.path.join(args.save_dir, f"{args.model}_{args.context}_{args.lr}_{args.loss_fn}_{args.seed}")
-print(f"Model directory: {model_dir}")
+if args.decoder_context_length != 0:
+    configs.decoder_context_length = args.decoder_context_length
+    assert configs.decoder_context_length % configs.compression_factor == 0
 
+# Prepare model
 if args.model == "poco":
     model_instance = POCO(configs, [[input_size]])
 elif args.model == "linear":
     model_instance = NLinear(configs, input_size)
 
+# Model directory (include all relevant hyperparameters)
+model_dir = os.path.join(
+    args.save_dir,
+    f"{args.model}_ctx{args.context}_dctx{args.decoder_context_length}_lr{args.lr}_loss{args.loss_fn}"
+    f"_cf{configs.compression_factor}_wd{args.weight_decay}_drop{args.poyo_unit_dropout}"
+    f"_cond{args.conditioning_dim}_seed{args.seed}"
+)
+print(f"Model directory: {model_dir}")
+
+# Train model
 model, mae, avg_mae = train(
-    model_instance, 
-    args.context, 
-    seed=args.seed, 
+    model_instance,
+    args.context,
+    seed=args.seed,
     save_dir=model_dir,
     batch_size=args.batch_size,
     num_epochs=args.num_epochs,
     lr=args.lr,
-    loss_fn=args.loss_fn
+    loss_fn=args.loss_fn,
+    weight_decay=args.weight_decay
 )

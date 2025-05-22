@@ -5,4 +5,5 @@ sbatch/*
 experiments/*
 zapbench_scripts/experiments/*
 zapbench_scripts/sbatch/*
+zapbench_scripts/figures/*
 figures/*

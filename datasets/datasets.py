@@ -65,6 +65,10 @@ class NeuralDataset(tud.Dataset):
         self.unit_types = unit_types # used in init_single_dataset
 
         logging.info(f"Raw Activity Shape: {[activity.shape for activity in all_activities]}")
+        # show average length / average number of neurons
+        avg_length = np.mean([activity.shape[1] for activity in all_activities])
+        avg_neurons = np.mean([activity.shape[0] for activity in all_activities])
+        logging.info(f"Average Length: {avg_length}, Average Neurons: {avg_neurons}")
 
         for all_activity in all_activities:
                     

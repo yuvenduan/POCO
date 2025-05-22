@@ -1,4 +1,4 @@
-# Adapted from https://github.com/DurstewitzLab/dendPLRNN/blob/main/BPTT_TF/bptt/PLRNN_model.py
+# PLRNN adapted from https://github.com/DurstewitzLab/dendPLRNN/blob/main/BPTT_TF/bptt/PLRNN_model.py
 
 from typing import Optional, Tuple
 from configs.config_global import DEVICE

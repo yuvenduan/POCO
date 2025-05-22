@@ -18,6 +18,31 @@ with warnings.catch_warnings():
 
 from typing import Union, Optional
 
+class NeuralPredictionConfig:
+
+    def __init__(self):
+        self.seq_length = 64 # total length
+        self.pred_length = 16 # prediction length
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        self.compression_factor = 16 # 16 steps per token
+        self.decoder_type = 'POYO'
+        self.conditioning = 'mlp'
+        self.conditioning_dim = 1024
+        self.decoder_context_length = None
+
+        self.poyo_num_latents = 8
+        self.latent_session_embedding = False
+        self.unit_embedding_components = ['session', ] # embeddings that will in added on top of unit embedding
+        self.decoder_num_layers = 1
+        self.decoder_num_heads = 16
+        self.poyo_unit_dropout = 0
+        self.rotary_attention_tmax = 100
+        self.decoder_hidden_size = 128
+
+        self.freeze_backbone = False
+        self.freeze_conditioned_net = False
+
 # Adapted from POYO: https://poyo-brain.github.io/
 class RotaryCrossAttention(nn.Module):
     def __init__(
@@ -758,32 +783,6 @@ class POYO(nn.Module):
         self.session_emb.requires_grad_(requires_grad)
         # self.latent_emb.requires_grad_(requires_grad)
 
-class NeuralPredictionConfig:
-
-    def __init__(self):
-        self.seq_length = 64 # total length
-        self.pred_length = 16 # prediction length
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-        self.compression_factor = 16 # 16 steps per token
-        self.decoder_type = 'POYO'
-        self.conditioning = 'mlp'
-        self.conditioning_dim = 1024
-
-        self.poyo_num_latents = 8
-        self.latent_session_embedding = False
-        self.unit_embedding_components = ['session', ] # embeddings that will in added on top of unit embedding
-        self.poyo_query_mode = 'single' # or 'multi'
-        self.poyo_output_mode = 'query' # or 'latent'
-        self.decoder_num_layers = 1
-        self.decoder_num_heads = 16
-        self.poyo_unit_dropout = 0
-        self.rotary_attention_tmax = 100
-        self.decoder_hidden_size = 128
-
-        self.freeze_backbone = False
-        self.freeze_conditioned_net = False
-
 class POCO(nn.Module):
 
     def __init__(self, config: NeuralPredictionConfig, input_size):
@@ -796,18 +795,14 @@ class POCO(nn.Module):
         self.num_datasets = len(input_size)
         input_size = list(itertools.chain(*input_size))
         self.tokenizer = None
-        self.TC = self.Tin // config.compression_factor
         self.tokenizer_type = 'none'
         self.token_dim = config.compression_factor
-        self.T_step = self.Tin // self.TC
+        self.T_step = config.compression_factor
 
         self.input_size = input_size
-        self.embedding_length = 1
         self.pred_step = config.pred_length
 
         assert config.decoder_type == 'POYO'
-        poyo_query_mode = config.poyo_query_mode
-        self.embedding_length = 1 if poyo_query_mode == 'single' else config.pred_length
         self.decoder = POYO(
             input_dim=self.token_dim, 
             dim=config.decoder_hidden_size,
@@ -815,10 +810,9 @@ class POCO(nn.Module):
             self_heads=config.decoder_num_heads,
             input_size=input_size,
             num_latents=config.poyo_num_latents,
-            query_length=self.embedding_length,
             T_step=self.T_step,
             unit_dropout=config.poyo_unit_dropout,
-            output_latent=config.poyo_output_mode == 'latent',
+            output_latent=False,
             t_max=config.rotary_attention_tmax,
             num_datasets=self.num_datasets,
             unit_embedding_components=config.unit_embedding_components,
@@ -843,6 +837,10 @@ class POCO(nn.Module):
         self.conditioning_beta.bias.data.zero_()
 
         self.out_proj = nn.Linear(config.conditioning_dim, self.linear_out_size)
+
+        if config.decoder_context_length is not None:
+            self.Tin = config.decoder_context_length
+        self.n_tokens = self.Tin // config.compression_factor
 
         # freeze parts of the model for finetuning
         if config.freeze_backbone:
@@ -872,7 +870,6 @@ class POCO(nn.Module):
 
         # only use the last Tin steps
         if L != self.Tin:
-            x_list = [xx[-self.Tin: ] for xx in x_list]
             x = x[:, -self.Tin: ]
 
         # Tokenize the input sequence
@@ -884,7 +881,7 @@ class POCO(nn.Module):
             out = self.tokenizer(out) # out: sum(B * D), C, TC
             out = out.permute(0, 2, 1) # out: sum(B * D), TC, C
         elif self.tokenizer_type == 'none':
-            out = x.reshape(x.shape[0], self.TC, self.Tin // self.TC) # out: sum(B * D), TC, E
+            out = x.reshape(x.shape[0], self.Tin // self.T_step, self.T_step) # out: sum(B * D), TC, E
         else:
             raise ValueError(f"Unknown tokenizer type {self.tokenizer_type}")
         d_list = self.input_size
