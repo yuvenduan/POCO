@@ -1,3 +1,5 @@
+Working in progress...
+
 ### Installation
 
 To install dependencies, run (for now the configuration is only tested on Linux):
