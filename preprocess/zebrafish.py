@@ -78,8 +78,6 @@ def process_zebrafish_ahrens_activity(filter_mode='none'):
             print(f"Subject {subject_id}: Cannot open TimeSeries.h5")
             continue
 
-        continue
-
         data_dict = {}
         for key in f.keys():
             data_dict[key] = np.array(f[key])

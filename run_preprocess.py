@@ -15,7 +15,7 @@ if __name__ == '__main__':
 
         process_zebrafish_ahrens_activity(filter_mode=filter_mode)
 
-        # celegans_zimmer_preprocess(filter_mode=filter_mode)
+        celegans_zimmer_preprocess(filter_mode=filter_mode)
         # celegans_flavell_preprocess(filter_mode=filter_mode)
 
         # mice_preprocess(filter_mode=filter_mode)
