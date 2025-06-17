@@ -1,5 +1,3 @@
-# PLRNN adapted from https://github.com/DurstewitzLab/dendPLRNN/blob/main/BPTT_TF/bptt/PLRNN_model.py
-
 from typing import Optional, Tuple
 from configs.config_global import DEVICE
 import torch.nn as nn
@@ -134,6 +132,7 @@ class CTRNN(nn.Module):
             inp = torch.stack(layer_out)
         return inp, hidden_in
 
+# PLRNN adapted from https://github.com/DurstewitzLab/dendPLRNN/blob/main/BPTT_TF/bptt/PLRNN_model.py
 class Latent_Step(nn.Module):
     def __init__(self, dz, clip_range=None, layer_norm=False):
         super(Latent_Step, self).__init__()
@@ -157,17 +156,6 @@ class Latent_Step(nn.Module):
         # value range
         r = 1 / math.sqrt(shape[0])
         nn.init.uniform_(tensor, -r, r)
-        return nn.Parameter(tensor, requires_grad=True)
-
-    def init_thetas_uniform(self) -> nn.Parameter:
-        '''
-        Initialize theta matrix of the basis expansion models such that 
-        basis thresholds are uniformly covering the range of the given dataset
-        '''
-        mn, mx = dataset.data.min().item(), dataset.data.max().item()
-        tensor = torch.empty((self.dz, self.db))
-        # -mx to +mn due to +theta formulation in the basis step formulation
-        nn.init.uniform_(tensor, -mx, -mn)
         return nn.Parameter(tensor, requires_grad=True)
 
     def init_AW(self):
@@ -212,41 +200,3 @@ class PLRNN_Step(Latent_Step):
         z_activated = torch.relu(self.norm(z))
         z = self.alpha * (A * z + z_activated @ W.t() + h) + (1 - self.alpha) * z
         return self.clip_z_to_range(z)
-
-class PLRNN_Basis_Step(Latent_Step):
-    def __init__(self, db, dataset=None, *args, **kwargs):
-        super(PLRNN_Basis_Step, self).__init__(*args, **kwargs)
-        self.AW = self.init_AW()
-        self.h = self.init_uniform((self.dz, ))
-        self.db = db
-
-        if dataset is not None:
-            self.thetas = self.init_thetas_uniform(dataset)
-        else:
-            self.thetas = nn.Parameter(torch.randn(self.dz, self.db))
-        self.alphas = self.init_uniform((self.db, ))
-
-    def forward(self, z, A, W, h, alphas, thetas):
-        z_norm = self.norm(z).unsqueeze(-1)
-        # thresholds are broadcasted into the added dimension of z
-        be = torch.sum(alphas * torch.relu(z_norm + thetas), dim=-1)
-        z = A * z + be @ W.t() + h
-        return self.clip_z_to_range(z)
-
-class PLRNN_Clipping_Step(Latent_Step):
-    def __init__(self, db, dataset=None, *args, **kwargs):
-        super(PLRNN_Clipping_Step, self).__init__(*args, **kwargs)
-        self.AW = self.init_AW()
-        self.h = self.init_uniform((self.dz, ))
-        self.db = db
-        if dataset is not None:
-            self.thetas = self.init_thetas_uniform(dataset)
-        else:
-            self.thetas = nn.Parameter(torch.randn(self.dz, self.db))
-        self.alphas = self.init_uniform((self.db, ))
-
-    def forward(self, z, A, W, h, alphas, thetas):
-        z_norm = self.norm(z).unsqueeze(-1)
-        be_clip = torch.sum(alphas * (torch.relu(z_norm + thetas) - torch.relu(z_norm)), dim=-1)
-        z = A * z + be_clip @ W.t() + h
-        return z

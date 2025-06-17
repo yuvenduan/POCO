@@ -9,16 +9,11 @@ from configs.configs import BaseConfig, NeuralPredictionConfig, DatasetConfig
 import datasets
 from configs.config_global import ROOT_DIR
 
-# TODO: could implement this entire structure as an iterator,
-# so that a batch is a list of batches for each dataloader
-# to consider reset all iterator at the end of training and testing
-# an alternative could be a data iterator that keep iterating though all datasets
-# note that the notion of epoch doesn't applies anymore
 class DatasetIters(object):
 
     def __init__(self, config: NeuralPredictionConfig, phase: str):
         """
-        Initialize a list of data loaders
+        Initialize a list of data loaders, compatible with multi-dataset/multi-task training.
         if only one dataset is specified, return a list containing one data loader
         """
         if type(config.dataset) is list or type(config.dataset) is tuple:
@@ -76,10 +71,6 @@ def init_single_dataset(dataset_name: str, phase: str, config: DatasetConfig):
         dataset = datasets.ZebrafishAhrens(config, phase=phase)
     elif dataset_name == 'simulation':
         dataset = datasets.Simulation(config, phase=phase)
-    elif dataset_name == 'zebrafishstim':
-        dataset = datasets.StimZebrafish(config, phase=phase)
-    elif dataset_name == 'zebrafishjain':
-        dataset = datasets.ZebrafishJain(config, phase=phase)
     elif dataset_name == 'celegans':
         dataset = datasets.Celegans(config, phase=phase)
     elif dataset_name == 'celegansflavell':

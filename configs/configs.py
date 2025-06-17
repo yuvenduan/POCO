@@ -25,26 +25,19 @@ class BaseConfig(object):
         self.dataset_label = None
         self.seed = 0
 
-        # Weight for each dataset
+        # weight for each dataset
         self.mod_w = [1.0, ]
 
-        # Specify required resources (useful when running on cluster)
+        # Specify required resources (only used when running on cluster)
         self.hours = 24
         self.mem = 32
         self.cpu = 2
         self.num_workers = 0
 
-        # basic evaluation parameters
-        self.store_states = False
-
         # if not None, load model from the designated path
         self.load_path = None
         self.finetuning = False
         self.freeze_backbone = False
-        self.dataset_filter = None
-
-        self.input_shape = None
-        self.model_outsize = None
 
     def update(self, new_config):
         self.__dict__.update(new_config.__dict__)
@@ -57,40 +50,30 @@ class SupervisedLearningBaseConfig(BaseConfig):
     def __init__(self):
         super().__init__()
 
-        self.training_mode = 'supervised'
-        # max norm of grad clipping, eg. 1.0 or None
-        self.grad_clip = 5
-
-        # optimizer
+        # optimizer, scheduler
         self.batch_size = 64
         self.optimizer_type = 'AdamW'
         self.lr = 3e-4
         self.wdecay = 1e-4
         self.log_loss = False # if True, use log loss, could be useful for multi-dataset training
-
-        # scheduler
         self.use_lr_scheduler = False
         self.scheduler_type = 'CosineAnnealing'
+        self.grad_clip = 5
 
-        # training
+        # training, evaluation
         self.num_ep = 100000
-        self.max_batch = 5000
-
-        # evaluation
+        self.max_batch = 10000
         self.perform_val = True
         self.perform_test = True
-        self.log_every = 100
+        self.log_every = 100 # test on validation set every log_every batches and print the loss
         self.save_every = 50000
 
         # autoregressive model config
-        self.print_mode = 'error'
         self.model_type = 'Autoregressive'
         self.rnn_type = 'LSTM'
         self.num_layers = 1
         self.teacher_forcing = True
         self.rnn_layernorm = False
-
-        # rnn config
         self.hidden_size = 512
         self.rnn_alpha = 0.05 # only for LRRNN, CTRNN, PLRNN
         self.rnn_rank = 4 # only for Low-Rank RNN (LRRNN)
@@ -111,7 +94,6 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.small_kernel_merged = False
         self.call_structural_reparam = False
         self.use_multi_scale = False
-
         self.dropout = 0.3
         self.kernel_size = 25
         self.individual = 0
@@ -122,25 +104,12 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.head_dropout = 0
         self.decomposition = 0
 
-        # vqvae model config
-        self.block_hidden_size = 128
-        self.vqvae_embedding_dim = 64
-        self.num_embeddings = 256
-        self.commitment_cost = 0.25
-        self.compression_factor = 16 # if None, set to seq_length - pred_length
-        self.num_residual_layers = 2
-        self.res_hidden_size = 64
-
-        # cnn model config
-        self.kernel_size
-        self.conv_channels = 64
-        self.conv_stride = 4
-
         # latent model config
         self.tf_interval = 4 
         self.hidden_size
         self.rnn_type # only support RNNs without input: CTRNN, PLRNN, ...
         self.latent_to_ob = 'linear' # or 'identity'
+        self.rnn_alpha
 
         # decoder config
         self.tokenizer_dir = None
@@ -161,11 +130,6 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.std_module_mode = 'none' # 'original', 'learned', 'learned_exp', 'none', ..., see models/layers/normalizer.py
         self.mu_std_separate_projs = False
 
-        self.conditioning = 'none' # or 'mlp'
-        self.conditioning_dim = 1024
-        self.freeze_conditioned_net = False
-        self.decoder_context_length = None # if not None, use the last decoder_context_length steps as input to the decoder model
-
         # poyo config
         self.poyo_num_latents = 8
         self.latent_session_embedding = False
@@ -176,9 +140,17 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.decoder_num_heads = 16
         self.poyo_unit_dropout = 0
         self.rotary_attention_tmax = 100
+        self.compression_factor = 16 # 16 steps form a token
+
+        # poco config
+        self.conditioning = 'none' # use 'mlp' for POCO, 'none' for POYO without conditioning
+        self.conditioning_dim = 1024
+        self.freeze_conditioned_net = False
+        self.decoder_context_length = None # if not None, use the last decoder_context_length steps as input to the decoder model
 
         # for filter net
         self.filter_embed_size = 128
+        self.dropout
 
         self.do_analysis = False
 
@@ -217,12 +189,6 @@ class DatasetConfig:
         self.connectivity_noise = 1
         self.tseed = 0
 
-        # config for visual fish data
-        self.use_stimuli = False
-        self.stimuli_dim = 0
-        self.use_eye_movements = False
-        self.use_motor = False
-
         # only available for zebrafish data and when pc_dim is None, could be any brain region name, 'all',
         # or 'average' (in which case we will average the neural activity within each brain region)
         self.brain_regions = 'all' 
@@ -244,23 +210,18 @@ class NeuralPredictionConfig(SupervisedLearningBaseConfig):
 
         self.seq_length = 64 # the total length of a sequence
         self.pred_length = 16 # the last pred_length frames will be predicted
-        self.target_mode = 'raw' # or 'derivative'
-        self.wdecay = 1e-4
         self.perform_test = True
         self.perform_val = True
-        self.loss_mode = 'autoregressive'
-        # or 'prediction', for the latter the target will be the next frame
+        self.loss_mode = 'prediction' # or 'autoregressive'. If 'autoregressive', loss will be computed on next-step predictions starting from the first frame of the sequence.
 
         # config for data
         self.dataset = 'zebrafish' # or a list of dataset names
+        self.dataset_filter = 'none' # used for real neural data: 'lowpass', 'bandpass', 'none'
+        self.connectivity_noise = None # used for simulated data
         self.dataset_config = {}
 
         self.max_batch = 10000
         self.test_batch = 100000 # test on all available data 
-        self.mem = 32
-        self.do_analysis = False
-
-        self.connectivity_noise = None
 
     def to_dict(self):
         # Convert to a JSON-serializable dictionary

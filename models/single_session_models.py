@@ -213,7 +213,7 @@ class NLinear(nn.Module):
 class PaiFilter(nn.Module):
 
     """
-    https://github.com/aikunyi/FilterNet
+    See https://github.com/aikunyi/FilterNet
     """
 
     def __init__(self, configs: NeuralPredictionConfig, input_size):

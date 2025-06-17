@@ -6,8 +6,6 @@ import numpy as np
 from utils.curbd import threeRegionSim
 from configs.config_global import SIM_DIR
 from .utils import process_data_matrix
-from sklearn.decomposition import PCA
-from analysis import plots
 
 def run(
     mode = 1, # number of regions
@@ -55,6 +53,8 @@ def save_sim_activity():
 
     os.makedirs(SIM_DIR, exist_ok=True)
 
+    """
+    # Uncomment this block to run the simulation with varying individual differences
     total_sims = 16 * 4 * 16
     cur = 0
 
@@ -67,10 +67,11 @@ def save_sim_activity():
                     run(mode=1, n=n, ga=2.0, seed=seed, template_connectivity=template, connectivity_noise=noise_std, pc_dim=0, tseed=tseed, noise_std=0.1)
                     cur += 1
                     print(f'Finished {cur}/{total_sims} sims')
+    """
 
-    return
+    
     for n in [150, 300]:
-        for tseed in range(8, 16):
+        for tseed in range(16):
             np.random.seed(n + tseed)
             template = np.random.randn(n, n)
             for noise_std in [0]:

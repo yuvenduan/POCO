@@ -18,7 +18,7 @@ import itertools
 
 from configs.configs import SupervisedLearningBaseConfig, NeuralPredictionConfig
 from models.model_utils import get_rnn, get_pretrained_model, get_rnn_from_config
-from models.TOTEM.models.decode import XcodeYtimeDecoder
+from models.layers.transformer import XcodeYtimeDecoder
 from models.poyo.poyo import POYO
 from models.layers.normalizer import MuStdWrapper, BatchedLinear, RevIN
 from models.layers.netformer import BaseNetFormer
@@ -403,23 +403,10 @@ class Decoder(nn.Module):
         self.unit_types = list(itertools.chain(*unit_types))
         self.unit_types = [torch.from_numpy(unit_type).to(DEVICE) for unit_type in self.unit_types]
 
-        if config.tokenizer_type == 'vqvae':
-            assert config.tokenizer_dir is not None, "Pre-trained tokenizer dir must be provided for vqvae"
-            model_path = os.path.join(config.tokenizer_dir, config.tokenizer_state_dict_file)
-            self.tokenizer = get_pretrained_model(model_path, config.tokenizer_dir, input_size)
-            self.TC = self.Tin // self.tokenizer.compression_factor
-            self.tokenizer_type = 'vqvae'
-            self.token_dim = self.tokenizer.embedding_dim
-        elif config.tokenizer_type == 'cnn':
-            self.tokenizer = nn.Sequential(nn.Conv1d(1, config.conv_channels, config.kernel_size, config.conv_stride), nn.ReLU())
-            self.TC = (self.Tin - config.kernel_size - 1) // config.conv_stride + 1
-            self.tokenizer_type = 'cnn'
-            self.token_dim = config.conv_channels
-        else:
-            self.tokenizer = None
-            self.TC = self.Tin // config.compression_factor
-            self.tokenizer_type = 'none'
-            self.token_dim = config.compression_factor
+        self.tokenizer = None
+        self.TC = self.Tin // config.compression_factor
+        self.tokenizer_type = 'none'
+        self.token_dim = config.compression_factor
         self.T_step = self.Tin // self.TC
 
         self.input_size = input_size

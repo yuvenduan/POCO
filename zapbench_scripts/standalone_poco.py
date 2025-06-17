@@ -1,3 +1,6 @@
+# Standalone implementation of POCO (Population-Conditioned Forecaster)
+# Needs torch, numpy, einops, and xformers
+
 import torch
 import torch.nn as nn
 import numpy as np

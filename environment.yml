@@ -1,4 +1,4 @@
-name: metafish
+name: poco
 channels:
   - defaults
 dependencies:

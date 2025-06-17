@@ -172,9 +172,6 @@ def configure_models(configs: dict):
                 config.model_type = 'Decoder'
                 config.loss_mode = 'prediction'
                 config.decoder_type = model_type
-                config.tokenizer_dir = None
-                config.tokenizer_type = 'none'
-                config.separate_projs = False
 
                 if config.compression_factor is None:
                     config.compression_factor = config.decoder_context_length if config.decoder_context_length is not None else config.seq_length - config.pred_length
@@ -187,20 +184,6 @@ def configure_models(configs: dict):
                 elif model_type == 'TACO':
                     config.conditioning = 'mlp'
                     config.decoder_type = 'Transformer'
-
-                if sub_model_type == 'TOTEM':
-                    data_label = config.dataset_label
-                    config.tokenizer_type = 'vqvae'
-                    config.tokenizer_dir = \
-                        f'experiments/vqvae/model_dataset_label{data_label}_compression_factor{config.compression_factor}_s{seed}'
-                    config.tokenizer_state_dict_file = 'net_20000.pth'
-                elif sub_model_type == 'cnn':
-                    config.tokenizer_type = 'cnn'
-                    config.kernel_size = 16
-                    config.conv_channels = 128
-                elif sub_model_type == 'pop':
-                    config.population_token = True
-                    config.population_token_dim = 512
 
             elif model_type == 'POCOtest':
                 config.model_type = 'POCOtest'

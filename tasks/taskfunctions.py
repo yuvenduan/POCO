@@ -66,7 +66,6 @@ class NeuralPrediction(TaskFunction):
         self.loss_mode = config.loss_mode
         self.pred_step = config.pred_length
         self.seq_len = config.seq_length
-        self.target_mode = config.target_mode
         self.config = config
         self.mse_baseline = {}
 
@@ -97,9 +96,6 @@ class NeuralPrediction(TaskFunction):
                 L = self.pred_step if self.pred_step > 0 else self.seq_len
                 self.sum_mse[phase].append(np.zeros((L, size)))
                 self.sum_mae[phase].append(np.zeros((L, size))) # L, D
-
-        self.recon_loss_list = {'train': [], 'val': [], 'test': []}
-        self.vae_loss_list = {'train': [], 'val': [], 'test': []}
 
     def roll(self, model: nn.Module, data_batch: tuple, phase: str = 'train'):
         train_flag = phase == 'train'
@@ -159,7 +155,7 @@ class NeuralPrediction(TaskFunction):
             return task_loss, pred_num
         
     def plot_prediction(self, save_path: str, phase: str):
-        # visualize prediction of the first/last dimension for 10 random trials
+        # visualize prediction for selected dimensions
         for pc in [0, 20, 50, -1]:
             if pc >= max(self.input_size):
                 continue
@@ -176,18 +172,11 @@ class NeuralPrediction(TaskFunction):
                 target = data[1][:, sample_idx, pc]
                 inp = data[2][:, sample_idx, pc]
 
-                if self.target_mode == 'raw':
-                    if self.loss_mode == 'prediction': # get the whole trial
-                        pred = np.concatenate([inp, pred])
-                        target = np.concatenate([inp, target])
-                    preds.append(pred)
-                    targets.append(target)
-                else:
-                    assert self.loss_mode != 'prediction', 'Not implemented'
-                    raw_target = inp[-1] + np.cumsum(data[1][-self.pred_step:, sample_idx, pc])
-                    targets.append(np.concatenate([inp[1: ], raw_target]))
-                    pred = inp[-1] + np.cumsum(data[0][-self.pred_step:, sample_idx, pc])
-                    preds.append(np.concatenate([inp[: -1] + data[0][: -self.pred_step, sample_idx, pc], pred]))
+                if self.loss_mode == 'prediction': # get the whole trial
+                    pred = np.concatenate([inp, pred])
+                    target = np.concatenate([inp, target])
+                preds.append(pred)
+                targets.append(target)
 
             plots.pred_vs_target_plot(
                 list(zip(preds, targets)), 
@@ -203,15 +192,8 @@ class NeuralPrediction(TaskFunction):
 
             if phase == 'val':
                 assert self.mse_baseline.get(phase) is not None, 'mse_baseline is not set'
-
             if np.sum(self.pred_num[phase][0]) == 0:
                 continue
-            if len(self.recon_loss_list[phase]) > 0:
-                mean_recon_loss = np.mean(self.recon_loss_list[phase])
-                logger.log_tabular(f'{phase}_recon_loss', mean_recon_loss)
-            if len(self.vae_loss_list[phase]) > 0:
-                mean_vae_loss = np.mean(self.vae_loss_list[phase])
-                logger.log_tabular(f'{phase}_vae_loss', mean_vae_loss)
 
             for dataset, session_ids in self.session_ids.items():
                 sum_pred_num = 0

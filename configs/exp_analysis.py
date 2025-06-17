@@ -205,7 +205,7 @@ def compare_model_training_curves(
                     label_list=plot_model_list,
                     save_dir=save_dir,
                     fig_name=f'{dataset}_{mode}_val_{key}',
-                    figsize=(7 + show_test_performance * 4, 3),
+                    figsize=(6 + show_test_performance * 4, 3),
                     mode='errorshade',
                     extra_lines=draw_baseline,
                     legend_bbox_to_anchor=(1.05, 0), # move the legend to the right
@@ -382,6 +382,33 @@ def get_weighted_performance(cfgs, n_models, n_exps, exp_list, transpose=False, 
         performances.append(total[: valid_seeds])
 
     return performances
+
+def poco_test_analysis():
+    cfgs = experiments.poco_test()
+    model_list = ['POCO', 'NLinear', 'MLP']
+    dataset_list = ['celegans', 'zebrafishahrens_pc']
+
+    performances = {}
+    for i, dataset in enumerate(dataset_list):
+        performances[dataset] = get_weighted_performance(
+            cfgs, len(model_list), len(dataset_list), [i], transpose=True
+        )
+
+        compare_model_training_curves(
+            cfgs, save_dir='test', mode_list=[dataset], model_list=model_list,
+            plot_model_lists=None, colors=plots.get_model_colors(model_list)
+        )
+    
+    performance = [[performances[dataset][i] for dataset in dataset_list] for i in range(len(model_list))]
+    colors = plots.get_model_colors(['POCO', 'NLinear', 'MLP'])
+    plots.grouped_plot(
+        performance, group_labels=get_dataset_labels(dataset_list),
+        bar_labels=model_list, colors=colors,
+        x_label='Dataset', y_label='Prediction Score',
+        ylim=[0, 0.6], save_dir='test', fig_name='compare_model_test_performance',
+        fig_size=(5, 4), style='bar', title='POCO Test Analysis',
+        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode=None
+    )
 
 # ['zebrafish_pc', 'zebrafishahrens_pc', 'celegansflavell', 'celegans', 'mice', 'mice_pc', ]
 ylim_list = [(0.5, 0.53), (0.42, 0.45), (0, 0.3), (0.3, 0.4), (0.41, 0.43), (0.37, 0.39)]
@@ -615,28 +642,6 @@ def get_dataset_labels(dataset_list):
         'celegansflavell_pc': 'Worms PC (Flavell)',
     }
     return [name_dict[dataset] for dataset in dataset_list]
-
-def poco_test_analysis():
-    cfgs = experiments.poco_test()
-    model_list = ['POCOtest', 'POCO', 'NLinear', 'Linear']
-    dataset_list = experiments.dataset_list
-
-    performances = {}
-    for i, dataset in enumerate(dataset_list):
-        performances[dataset] = get_weighted_performance(
-            cfgs, len(model_list), len(dataset_list), [i], transpose=True
-        )
-    plot_datasets = dataset_list
-    performance = [[performances[dataset][i] for dataset in dataset_list] for i in range(len(model_list))]
-    colors = plots.get_model_colors(['POCO', 'POCOtest', 'NLinear', 'Linear'])
-    plots.grouped_plot(
-        performance, group_labels=get_dataset_labels(dataset_list),
-        bar_labels=model_list, colors=colors,
-        x_label='Dataset', y_label='Prediction Score',
-        ylim=[0, 0.7], save_dir='compare_models_all', fig_name='poco_test',
-        fig_size=(10, 4), style='bar', title='POCO Test Analysis',
-        legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
-    )
 
 def compare_models_analysis():
 
@@ -971,15 +976,11 @@ def compare_pretraining_dataset_analysis():
     cfgs = experiments.compare_pretraining_dataset()
     model_list = ['Pre-POCO(Ahrens)', 'Pre-POCO(Deisseroth)', 'Pre-POCO(Both Datasets)', 'POCO', 'NLinear', 'MLP']
     performances = {}
-
-    performances['zebrafish_pc_jain'] = get_weighted_performance(
-        cfgs, len(model_list), 9, [0], transpose=True,
-    )
     performances['zebrafish_pc_Deisseroth'] = get_weighted_performance(
-        cfgs, len(model_list), 9, [1, 2, 3, 4], transpose=True,
+        cfgs, len(model_list), 8, [0, 1, 2, 3], transpose=True,
     )
     performances['zebrafish_pc_ahrens'] = get_weighted_performance(
-        cfgs, len(model_list), 9, [5, 6, 7, 8], transpose=True,
+        cfgs, len(model_list), 8, [4, 5, 6, 7], transpose=True,
     )
 
     plot_datasets = ['zebrafish_pc_Deisseroth', 'zebrafish_pc_ahrens', ]

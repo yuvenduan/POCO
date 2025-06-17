@@ -1,12 +1,10 @@
 import torch
 import torch.nn as nn
-import models
 import numpy as np
 import torch
-import math
 import models.multi_session_models as multi_session_models
 
-from configs.config_global import ROOT_DIR, DEVICE
+from configs.config_global import DEVICE
 from configs.configs import SupervisedLearningBaseConfig
 from utils.config_utils import load_config
 from configs.configs import BaseConfig
@@ -47,8 +45,6 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
         rnn = CTRNN(rnn_in_size, hidden_size, alpha=alpha, num_layers=num_layers, **kwargs)
     elif rnn_type == 'LRRNN':
         rnn = CTRNNCell(rnn_in_size, hidden_size, alpha=alpha, rank=rank, residual=residual, **kwargs)
-    elif rnn_type == 'BiGRU':
-        rnn = nn.GRU(rnn_in_size, hidden_size, bidirectional=True, num_layers=num_layers, **kwargs)
     elif rnn_type == 'Transformer':
         assert rnn_in_size == hidden_size, 'Input size must be equal to hidden size for transformer'
         kwargs['num_layers'] = kwargs.get('num_layers', 4)
@@ -68,8 +64,6 @@ def get_rnn(rnn_type, rnn_in_size, hidden_size, alpha=0.1, rank=2, num_layers=1,
             nn.Tanh()
         )
         assert kwargs.get('num_layers', 1) == 1
-    elif rnn_type == 'S4':
-        rnn = models.S4(hidden_size, num_layers=num_layers, **kwargs)
     else:
         raise NotImplementedError('RNN not implemented')
     return rnn

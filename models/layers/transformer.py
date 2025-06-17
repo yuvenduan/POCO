@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 from typing import Optional
 from torch import Tensor
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 class PositionalEncoding(nn.Module):
 
@@ -87,3 +88,66 @@ def generate_square_subsequent_mask(sz: int, device: str = "cpu") -> torch.Tenso
         .masked_fill(mask == 1, float(0.0))
     ).to(device=device)
     return mask
+
+# Adapted from https://github.com/SaberaTalukder/TOTEM/blob/master/forecasting/lib/models/decode.py
+class XcodeYtimeDecoder(nn.Module):
+    def __init__(
+        self,
+        d_in: int,
+        d_model: int,
+        nhead: int,
+        d_hid: int,
+        nlayers: int,
+        seq_in_len: int = 5000,
+        seq_out_len: int = 5000,
+        dropout: float = 0.0,
+        batch_first: bool = False,
+        norm_first: bool = False,
+    ):
+        super(XcodeYtimeDecoder, self).__init__()
+        self.model_type = "Transformer"
+        self.d_model = d_model
+
+        self.has_linear_in = d_in != d_model
+        if self.has_linear_in:
+            self.linear_in = nn.Linear(d_in, d_model)
+
+        self.pos_encoder = PositionalEncoding(d_model, dropout, seq_in_len)
+
+        encoder_layers = TransformerEncoderLayer(
+            d_model,
+            nhead,
+            dim_feedforward=d_hid,
+            dropout=dropout,
+            batch_first=batch_first,
+            norm_first=norm_first,
+        )
+        self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
+
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        """Initiate parameters in the transformer model."""
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, x: torch.Tensor, x_mask: torch.Tensor = None) -> torch.Tensor:
+        """
+        Arguments:
+            x: tensor of shape (batch_size, seq_in_len, d_in)
+            x_mask: tensor of shape (seq_in_len, seq_in_len)
+
+        Returns:
+            y: tensor of shape (batch_size, seq_out_len)
+        """
+        x = x.transpose(0, 1) # (seq_in_len, batch, d_in)
+        if self.has_linear_in:
+            x = self.linear_in(x)
+        x = self.pos_encoder(x)
+        x = self.transformer_encoder(x, x_mask)  # (seq_in_len, batch, d_model)
+
+        x = torch.permute(x, (1, 0, 2))
+        x = x.flatten(start_dim=1)
+
+        return x
