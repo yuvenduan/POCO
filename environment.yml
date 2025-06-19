@@ -1,23 +1,29 @@
 name: poco
 channels:
   - defaults
+  - conda-forge
+  - anaconda
+  - pytorch
+  - nvidia
 dependencies:
   - python==3.10.14
-  - pytorch
-  - pytorch-cuda=12.1
+  - pytorch==2.4.0
+  - pytorch-cuda==12.1
   - torchaudio
   - torchvision
-  - xformers
   - scikit-learn
   - scipy
   - tqdm
   - anaconda::h5py
   - pandas
   - matplotlib
-  - conda-forge::einops
   - conda-forge::torchmetrics
   - conda-forge::pytorch-lightning
+  - conda-forge::einops
+  - pip
+  - conda-forge::umap-learn
   - pip:
     - mat73
     - tensorstore
-    - git+https://github.com/google-research/zapbench.git#egg=zapbench
+    - xformers
+    - torchtyping

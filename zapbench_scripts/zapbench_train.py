@@ -1,13 +1,6 @@
 # -*- coding: utf-8 -*-
 """zapbench.ipynb
-
 Adapted from https://github.com/google-research/zapbench/blob/main/colabs/train_and_evaluate.ipynb
-
-Install packages
-
-conda create -n "zapbench" python=3.11
-pip install git+https://github.com/google-research/zapbench.git#egg=zapbench
-pip install torchtyping xformers torch
 """
 
 from zapbench import constants

@@ -1,67 +1,87 @@
 ### Installation
 
-If you just want to use the POCO model in your own codebase, you can use <code>zapbench_scripts/standalone_poco.py</code>, which is a standalone version for the model.
+If you just want to use the POCO model in your own codebase, you can use `<code>zapbench_scripts/standalone_poco.py</code>`, which is a standalone version of the model.
 
-To install dependencies for the codebase, run (for now the configuration is only tested on Linux):
+To install dependencies for the codebase (currently only tested on Linux), run:
+
 ```bash
 conda env create -f environment.yml
 conda activate poco
 ```
 
-Zapbench experiments use a separate set of training and analysis scripts as in <code>zapbench_scripts</code>.
+Zapbench experiments use a separate set of training and analysis scripts in `<code>zapbench_scripts</code>`.
+
+---
 
 ### Datasets
 
-This work uses multiple public neural datasets:
+This project uses multiple public neural datasets:
 
-* Zebrafish data from [Chen et al., Neuron 2018](https://janelia.figshare.com/articles/dataset/Whole-brain_light-sheet_imaging_data/7272617). All subjects except subject 8, 9, 11 are used.
-* C. elegans data from Kato et al., Cell. Data can be found at [here](https://github.com/akshey-kumar/BunDLe-Net/tree/main/data/raw). 
-* C. elegans data from [Atanas & Kim et al., Cell 2023](https://wormwideweb.org/activity/dataset/). We used all 40 sessions with NeuroPAL in data collected in Atanas & Kim et al..
+* **Zebrafish** data from [Chen et al., *Neuron*, 2018](https://janelia.figshare.com/articles/dataset/Whole-brain_light-sheet_imaging_data/7272617). All subjects are used except for subjects 8, 9, and 11.
+* **C. elegans** data from Kato et al., *Cell*. Available [here](https://github.com/akshey-kumar/BunDLe-Net/tree/main/data/raw).
+* **C. elegans** data from [Atanas & Kim et al., *Cell*, 2023](https://wormwideweb.org/activity/dataset/). We use all 40 NeuroPAL sessions in their dataset.
 
-To set up neural data, first put raw data in <code>data/raw_datasetname/</code>. See <code>configs/config_global</code> for paths for different datasets. Then you can edit and run <code>run_preprocess.py</code> to preprocess the corresponding dataset, preprocessing include normalizing, computing PCs and optional filtering. The processed data will be saved in <code>data/processed_datasetname</code>. You can also edit <code>run_preprocess.py</code> to generate simulated data.
+To set up the neural data, first place the raw data in `data/raw_datasetname/`. See `configs/config_global` for the expected paths for each dataset. Then edit and run `run_preprocess.py` to preprocess the corresponding dataset. Preprocessing includes normalization, PCA, and optional filtering. The processed data will be saved in `data/processed_datasetname`.
 
-You can also put your own data in <code>data/...</code> and implement your own data processing pipeline like those in <code>datasets/datasets.py</code>. In particular, you can inherit from <code>NeuralDataset</code> class and implement <code>load_all_activities</code>, then define how to initialize the dataset in <code>datasets/dataloader.py</code> and add configs for the dataset in <code>configs/configure_model_datasets</code>.
+You can also generate simulated data by modifying `run_preprocess.py`.
+
+To use your own data, place it in `data/...` and implement a custom data processing pipeline similar to those in `datasets/datasets.py`. In particular, you can inherit from the `NeuralDataset` class and implement the `load_all_activities` method. You’ll also need to define how to initialize the dataset in `datasets/dataloader.py` and add configuration options in `configs/configure_model_datasets`.
+
+---
 
 ### Train and Analyze
 
-To run an experiment, run:
+To run an experiment, use:
+
 ```bash
 python main.py -t exp_name
 ```
-Each experiment is defined as a function in <code>configs/experiments.py</code> that returns a dictionary of configurations. You can also define your own experiments with customized hyperparameters/datasets/model by adding a function. For a list of predefined hyperparameters, see <code>configs/configs.py</code>. Some parameteres are configured according to the dataset and the model in <code> </code>. During training, eval results and sample prediction visualization will be saved in <code>experiments/exp_name/...</code>, where you can find training progress, saved best model, and sample predictions on the validation set.
 
-If you have multiple GPUs on your machine, you can add <code>-s</code> so that different runs can be run concurrently. If you are using a Slurm cluster, you can add <code>-c</code> so that jobs will be submitted to the cluster and use <code> -p ... </code> and <code> --acc ... </code> to designate partition and account name. 
+Each experiment is defined as a function in `configs/experiments.py`, which returns a dictionary of configurations. You can add your own experiment functions to customize hyperparameters, datasets, or model settings. See `configs/configs.py` for a list of predefined hyperparameters. Some parameters are automatically configured based on the dataset and model.
 
-To analyze results, run:
+During training, evaluation results and prediction visualizations will be saved in `experiments/exp_name/...`, where you can find training progress, the best saved model, and predictions on the validation set.
+
+If you have multiple GPUs, use the `-s` flag to run multiple experiments concurrently. On a Slurm cluster, use `-c` to submit jobs, and `-p ...` and `--acc ...` to specify the partition and account name.
+
+To analyze results, use:
+
 ```bash
 python main.py -a exp_name
 ```
-See <code>configs/exp_analysis.py</code> for a list of available analyses. Note that if the name of the analysis is <code>x_analysis</code>, you should run <code>python main.py -a exp_name</code>. The figures would be saved in some subfolder of <code>figures</code>.
 
-As an example with 1000 training steps using the zebrafish dataset from Ahrens et al. and the C. elegans dataset from Zimmer et al, run
+Available analysis functions are listed in `configs/exp_analysis.py`. If the name of the analysis is `x_analysis`, simply run the command above and the corresponding figures will be saved under `figures/...`.
+
+**Example:**
+To run an example with 1000 training steps using the zebrafish dataset from Ahrens et al. and the C. elegans dataset from Zimmer et al., run:
+
 ```bash
-python main.py -t test
-python main.py -a test
+python main.py -t poco_test
+python main.py -a poco_test
 ```
+
+---
 
 ### Code Structure
 
-* <code>configs/configs.py</code> defines the base config, which could be changed in individual experiments in <code>configs/experiments.py</code>.
-* <code>model/model_utils.py</code> defines the model types and rnn types used in the experiments. 
-* <code>models/multi_session_models.py</code> and <code> models/single_session_models.py </code> implement the models.
-* <code>tasks/taskfunction.py</code> implements the neural prediction task.
-* <code>datasets/datasets.py</code> implements the dataset for neural prediction, partition into training and test sets.
-* <code>main.py</code> save config for each run in a experiment (and submit the jobs to cluster if with -c)
-* <code>train.py</code> implements the training loop
+* `configs/configs.py`: Base config, overridden by individual experiments in `configs/experiments.py`.
+* `model/model_utils.py`: Defines model types and RNN types.
+* `models/multi_session_models.py` and `models/single_session_models.py`: Model implementations.
+* `tasks/taskfunction.py`: Implements the neural prediction task.
+* `datasets/datasets.py`: Implements dataset loading and train/test splitting.
+* `main.py`: Saves configs for each run and submits jobs (if `-c` is used).
+* `train.py`: Implements the training loop.
+
+---
 
 ### Acknowledgements
 
 This work was supported by the NIH (RF1DA056403), James S. McDonnell Foundation (220020466), Simons Foundation (Pilot Extension-00003332-02), McKnight Endowment Fund, CIFAR Azrieli Global Scholar Program, and NSF (2046583).
 
-Some code snipets are based on previous work:
-* POYO: https://poyo-brain.github.io/
-* TSMixer: https://github.com/ditschuk/pytorch-tsmixer
-* PLRNN: https://github.com/DurstewitzLab/dendPLRNN
-* NetFormer: https://github.com/NeuroAIHub/NetFormer
-* ModernTCN: https://github.com/luodhhh/ModernTCN
-* FilterNet: https://github.com/aikunyi/FilterNet
+Some code snippets are based on the following prior work:
+
+* [POYO](https://poyo-brain.github.io/)
+* [TSMixer](https://github.com/ditschuk/pytorch-tsmixer)
+* [PLRNN](https://github.com/DurstewitzLab/dendPLRNN)
+* [NetFormer](https://github.com/NeuroAIHub/NetFormer)
+* [ModernTCN](https://github.com/luodhhh/ModernTCN)
+* [FilterNet](https://github.com/aikunyi/FilterNet)
