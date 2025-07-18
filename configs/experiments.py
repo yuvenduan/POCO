@@ -119,6 +119,44 @@ large_dataset_list = ['zebrafishahrens', 'zebrafish', ]
 # core experiments (others): compare_models_multi_session compare_models_multi_species zebrafish_multi_datasets compare_models_zebrafish_single_neuron compare_models_sim_multi_session compare_models_sim
 # compare dataset size: compare_models_multiple_splits_celegans_flavell compare_models_multiple_splits_mice compare_models_multiple_splits_zebrafish compare_train_length_celegans_flavell compare_train_length_mice compare_train_length_zebrafish
 
+def zebrafish_stim():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'zebrafish_stim'
+    config.max_batch = 1000
+    config.seq_length = 11
+    config.pred_length = 10
+    config.compression_factor = 1
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['zebrafishstim_avg']
+    config_ranges['model_label'] = ['Latent_PLRNN', 'POCO', 'MLP', 'AR_Transformer']
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def zebrafish_region_avg():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'zebrafish_region_avg'
+    config.dataset_label = 'zebrafish_avg'
+    
+    config_ranges = OrderedDict()
+    config_ranges['context_length'] = [1, 48]
+    config_ranges['pred_length'] = [1, 16]
+    config_ranges['model_label'] = ['ARMLP', 'Latent_PLRNN', 'POCO', 'MLP', 'AR_Transformer']
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=2)
+    for seed in configs.keys():
+        for config in configs[seed]:
+            config: NeuralPredictionConfig
+            config.seq_length = config.context_length + config.pred_length
+            config.compression_factor = max(1, (config.seq_length - config.pred_length) // 3)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
 def compare_dataset_filter():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_dataset_filter'

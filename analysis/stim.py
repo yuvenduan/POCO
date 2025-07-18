@@ -4,12 +4,12 @@ import os.path as osp
 import os
 import datasets
 
-from configs.configs import BaseConfig, NeuralPredictionConfig
+from configs.configs import BaseConfig, NeuralPredictionConfig, DatasetConfig
 from datasets.dataloader import DatasetIters, init_single_dataset
 from models.model_utils import model_init
 from utils.config_utils import load_config
 from utils.data_utils import get_stim_exp_names
-from configs.config_global import STIM_PROCESSED_DIR, DEVICE
+from configs.config_global import ZEBRAFISH_STIM_PROCESSED_DIR, DEVICE
 from matplotlib import pyplot as plt
 
 all_regions = [
@@ -50,7 +50,7 @@ def get_diffs(config: NeuralPredictionConfig, net, neural_data, stim_magnitude, 
 
             original = data[t - before: t]
             suppressed = data[t - before: t].copy()
-            suppressed[before - 2: before, region_idx] += stim_magnitude
+            suppressed[before - 1: before, region_idx] += stim_magnitude
 
             original = torch.tensor(original).unsqueeze(1).float().to(DEVICE)
             suppressed = torch.tensor(suppressed).unsqueeze(1).float().to(DEVICE)
@@ -62,8 +62,8 @@ def get_diffs(config: NeuralPredictionConfig, net, neural_data, stim_magnitude, 
             original_input[i_exp] = original
             suppressed_input[i_exp] = suppressed
 
-            original_pred = net(original_input, pred_step=config.pred_length)[i_exp]
-            suppressed_pred = net(suppressed_input, pred_step=config.pred_length)[i_exp]
+            original_pred = net(original_input)[i_exp]
+            suppressed_pred = net(suppressed_input)[i_exp]
 
             control_preds.append(original_pred)
             stim_preds.append(suppressed_pred)
@@ -74,7 +74,7 @@ def get_diffs(config: NeuralPredictionConfig, net, neural_data, stim_magnitude, 
         diff = stim_preds - control_preds
         avg_diffs.append(diff.cpu().numpy())
 
-    avg_diffs = np.stack(avg_diffs, axis=-1) # T * n_regions(N) * n_animals
+    avg_diffs = np.stack(avg_diffs, axis=-1) # T * n_regions(N) * n_animals 
 
     for idx, region in enumerate(all_regions):
         region_diffs = avg_diffs[:, idx]
@@ -92,27 +92,29 @@ def get_diffs(config: NeuralPredictionConfig, net, neural_data, stim_magnitude, 
 def virtual_stimulation(config: NeuralPredictionConfig):
     # conduct virtual optogenetic stimulation on the trained model, as in Fig 6L, Aeron et al., 2019 Cell
 
-    config.patch_length = 100000
-    config.test_split = 0
-    config.val_split = 0
-    data_set = datasets.StimZebrafish(config, phase='train')
+    dataset_config: DatasetConfig = config.dataset_config[config.dataset_label[0]]
+    dataset_config.patch_length = 100000
+    dataset_config.test_split = 0
+    dataset_config.val_split = 0
+    data_set = datasets.StimZebrafish(dataset_config, phase='train')
     neural_data = data_set.neural_data
-    datum_size = data_set.datum_size
+    datum_size = [data_set.input_size]
+    unit_types = [data_set.unit_types]
     save_dir = osp.join(config.save_path, 'stim')
 
     print(f'neural_data shape: {[data.shape for data in neural_data]}')
 
     stim_regions = ['forebrain', 'lHb', 'rHb']
-    net = model_init(config, datum_size)
+    net = model_init(config, datum_size, unit_types)
     net.load_state_dict(torch.load(osp.join(config.save_path, 'net_best.pth'), weights_only=True))
 
     assert config.downsample_ratio == 1
-    assert config.brain_regions == 'average'
+    assert dataset_config.brain_regions == 'average'
 
     stim_time_step_dict = {}
     exp_names = get_stim_exp_names()
     for i_exp, exp_name in enumerate(exp_names['control']):
-        filename = osp.join(STIM_PROCESSED_DIR, exp_name + '.npz')
+        filename = osp.join(ZEBRAFISH_STIM_PROCESSED_DIR, exp_name + '.npz')
         f = np.load(filename)
         stim_time_step_dict[exp_name] = {}
         for region in stim_regions:
@@ -127,3 +129,22 @@ def virtual_stimulation(config: NeuralPredictionConfig):
             sub_save_dir = osp.join(save_dir, f'r_{region}_stim={str(stim_magnitude)}')
             os.makedirs(sub_save_dir, exist_ok=True)
             r_diffs = get_diffs(config, net, neural_data, stim_magnitude, 'r', stim_time_step_dict, region, sub_save_dir)
+
+def get_interaction_map(config: NeuralPredictionConfig):
+    """
+    Get the interaction map for the zebrafish dataset
+    :param config: NeuralPredictionConfig
+    """
+    dataset_config: DatasetConfig = config.dataset_config[config.dataset_label[0]]
+    dataset_config.patch_length = 100000
+    dataset_config.test_split = 0
+    dataset_config.val_split = 0
+    data_set = datasets.StimZebrafish(dataset_config, phase='train')
+    neural_data = data_set.neural_data
+    datum_size = [data_set.input_size]
+    unit_types = [data_set.unit_types]
+
+    net = model_init(config, datum_size, unit_types)
+    net.load_state_dict(torch.load(osp.join(config.save_path, 'net_best.pth'), weights_only=True))
+
+    return

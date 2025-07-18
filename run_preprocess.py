@@ -10,10 +10,10 @@ if __name__ == '__main__':
 
     # load and process spontaneous fish activity
     # process_zebrafish_activity()
-    # process_zebrafish_stim_activity()
+    process_zebrafish_stim_activity()
 
     for filter_mode in ['none', 'lowpass',  ]:
-        process_zebrafish_ahrens_activity(filter_mode=filter_mode)
+        # process_zebrafish_ahrens_activity(filter_mode=filter_mode)
 
         # celegans_zimmer_preprocess(filter_mode=filter_mode)
         # celegans_flavell_preprocess(filter_mode=filter_mode)

@@ -99,7 +99,7 @@ def process_zebrafish_stim_activity():
 
     stim_regions = ['forebrain', 'lHb', 'rHb']
 
-    for exp_type in ['control', 'stim']:
+    for exp_type in ['control', ]: # 'stim'
         for exp_name in exp_names[exp_type]:
 
             filename = os.path.join(ZEBRAFISH_STIM_RAW_DIR, f'hbstim_{exp_name}_cnmf_.h5')
@@ -127,7 +127,8 @@ def process_zebrafish_stim_activity():
                     divide_baseline=True,
                     normalize_mode='zscore',
                     n_clusers=[],
-                    exp_name=exp_name
+                    exp_name=exp_name,
+                    pc_dim=128
                 )
                 data_dict.update(return_dict)
                 np.savez(out_filename, **data_dict)

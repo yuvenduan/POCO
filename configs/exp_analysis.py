@@ -1135,3 +1135,12 @@ def unit_embedding_analysis():
         cfg: NeuralPredictionConfig = cfgs[0][idx]
         if cfg.model_label in model_list and cfg.dataset_label[0] in dataset_list:
             analyze_embedding.analyze_embedding_all_seeds(cfgs, idx, methods=['PCA', 'UMAP'])
+
+from analysis import stim
+
+def stim_analysis():
+    cfgs = experiments.zebrafish_stim()
+
+    for seed in range(2):
+        for cfg in cfgs[seed]:
+            stim.virtual_stimulation(cfg)

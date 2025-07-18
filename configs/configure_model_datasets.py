@@ -60,6 +60,10 @@ def configure_dataset(configs: dict):
                         dataset_config.test_set_window_stride = 8
                         dataset_config.batch_size = 8
                         config.mem = max(config.mem, 128)
+                    elif dataset_type == 'avg':
+                        dataset_config.brain_regions = 'average'
+                        dataset_config.pc_dim = None
+                        dataset_config.normalize_mode = 'zscore'
                     else:
                         raise ValueError(f'Unknown dataset type: {dataset_type}')
                     
@@ -83,6 +87,7 @@ def configure_dataset(configs: dict):
                     elif dataset_type == 'avg':
                         dataset_config.brain_regions = 'average'
                         dataset_config.pc_dim = None
+                        dataset_config.normalize_mode = 'zscore'
                     elif dataset_type == None:
                         dataset_config.pc_dim = None
                         dataset_config.test_set_window_stride = 32

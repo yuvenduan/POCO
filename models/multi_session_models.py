@@ -5,7 +5,7 @@ __all__ = [
     'DLinear', 'MultiDLinear', 
     'TexFilter', 'PaiFilter', 
     'Latent_to_Obs', 'LatentModel', 
-    'Decoder', 'NetFormer',
+    'Decoder', 'NetFormer', 'ARMLP'
 ]
 
 import torch
@@ -715,4 +715,38 @@ class NLinear(nn.Module):
             x = self.Linear(x.permute(1, 2, 0)).permute(2, 0, 1)
             x = x + seq_last
             preds.append(x)
+        return preds
+    
+class ARMLP(nn.Module):
+    """
+    MLP model for next-step prediction
+    """
+    def __init__(self, config: NeuralPredictionConfig, input_size):
+        super().__init__()
+        
+        input_size = list(itertools.chain(*input_size))
+        # check that all input sizes are the same
+        assert len(set(input_size)) == 1, "All input sizes must be the same for MLP"
+
+        self.pred_step = config.pred_length
+        self.mlp = nn.Sequential(
+            nn.Linear(input_size[0], config.hidden_size),
+            nn.ReLU(),
+            nn.Linear(config.hidden_size, input_size[0])
+        )
+
+    def forward(self, input):
+        """
+        :param input: list of tensors, each of shape (L, B, D)
+        """
+        bsz = [x.shape[1] for x in input]
+        state = torch.cat(input, dim=1)[-1] # (B, D)
+        preds = []
+
+        for step in range(self.pred_step):
+            state = self.mlp(state)
+            preds.append(state)
+
+        preds = torch.stack(preds, dim=0) # (pred_step, B, D)
+        preds = torch.split(preds, bsz, dim=1)
         return preds
