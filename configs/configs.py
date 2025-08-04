@@ -163,6 +163,7 @@ class SupervisedLearningBaseConfig(BaseConfig):
 
         self.conditioning = 'none' # or 'mlp'
         self.conditioning_dim = 1024
+        self.conditioning_layers = 1
         self.freeze_conditioned_net = False
         self.decoder_context_length = None # if not None, use the last decoder_context_length steps as input to the decoder model
 
@@ -176,9 +177,20 @@ class SupervisedLearningBaseConfig(BaseConfig):
         self.decoder_num_heads = 16
         self.poyo_unit_dropout = 0
         self.rotary_attention_tmax = 100
+        self.poyo_embedding_only = False
+
+        # for mlp
+        self.mlp_hidden_size = 1024
+        self.mlp_hidden_layers = 1
+
+        # for tsmixer
+        self.tsmixer_ff_dim = 64
 
         # for filter net
         self.filter_embed_size = 128
+
+        # for netformer
+        self.netformer_embed_size = 30
 
         self.do_analysis = False
 
@@ -204,6 +216,7 @@ class DatasetConfig:
         self.sampling_freq = 1 # downsample the data by this factor
         self.sampling_mode = 'avg'
         self.test_set_window_stride = 1 # larger stride will make the test set smaller but faster to evaluate
+        self.shuffle_test = False # if True, shuffle the test set, otherwise use the original order of the data
 
         # config for simulated data
         self.n_neurons = 512 # only used for simulated dataset: the number of neurons used for training

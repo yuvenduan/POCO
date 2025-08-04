@@ -266,6 +266,7 @@ class TSMixer(tsmixer.TSMixer):
             sequence_length=configs.seq_length - configs.pred_length,
             prediction_length=configs.pred_length,
             input_channels=input_size,
+            ff_dim=configs.tsmixer_ff_dim
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

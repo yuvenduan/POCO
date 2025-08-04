@@ -432,8 +432,8 @@ class Decoder(nn.Module):
         elif config.decoder_type == 'MLP':
             self.decoder = nn.Sequential(
                 nn.Flatten(1, 2), 
-                nn.Linear(self.TC * self.token_dim, config.decoder_hidden_size), 
-                nn.ReLU()
+                nn.Linear(self.TC * self.token_dim, config.decoder_hidden_size), nn.ReLU(),
+                *[nn.Sequential(nn.Linear(config.decoder_hidden_size, config.decoder_hidden_size), nn.ReLU()) for _ in range(config.mlp_hidden_layers - 1)],
             )
             self.embedding_dim = config.decoder_hidden_size
         elif config.decoder_type == 'Transformer':
@@ -464,6 +464,7 @@ class Decoder(nn.Module):
                 unit_embedding_components=config.unit_embedding_components,
                 latent_session_embedding=config.latent_session_embedding,
                 num_unit_types=self.num_unit_types,
+                embedding_only=config.poyo_embedding_only
             )
             if config.poyo_output_mode == 'latent':
                 self.embedding_dim = config.poyo_num_latents * config.decoder_hidden_size
@@ -480,7 +481,13 @@ class Decoder(nn.Module):
         self.conditioning = config.conditioning
         self.conditioning_dim = config.conditioning_dim
         if config.conditioning == 'mlp':
-            self.in_proj = nn.Sequential(nn.Linear(self.Tin, config.conditioning_dim), nn.ReLU())
+            self.in_proj = nn.Sequential(
+                nn.Linear(self.Tin, config.conditioning_dim), nn.ReLU(),
+                *[nn.Sequential(
+                    nn.Linear(config.conditioning_dim, config.conditioning_dim), 
+                    nn.ReLU()
+                ) for _ in range(config.conditioning_layers - 1)],
+            )
             
             self.conditioning_alpha = nn.Linear(self.embedding_dim, config.conditioning_dim)
             self.conditioning_beta = nn.Linear(self.embedding_dim, config.conditioning_dim)

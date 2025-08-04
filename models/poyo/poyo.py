@@ -37,6 +37,7 @@ class POYO(nn.Module):
         unit_embedding_components=['session', ],
         latent_session_embedding=False,
         num_unit_types=None,
+        embedding_only=False, # if True, directly return the embeddings without using the perceiver
     ):
         super().__init__()
 
@@ -54,6 +55,7 @@ class POYO(nn.Module):
         self.num_latents = num_latents
         self.query_length = query_length
         self.unit_dropout = unit_dropout
+        self.embedding_only = embedding_only
 
         self.perceiver_io = PerceiverRotary(
             dim=dim,
@@ -103,6 +105,10 @@ class POYO(nn.Module):
             dataset_id = dataset_index[0]
             assert torch.all(dataset_index == dataset_id), 'currently, embedding for unit_type is only supported when each batch contains only one dataset'
             unit_embedding = unit_embedding + self.unit_type_emb[dataset_id](unit_type)
+
+
+        if self.embedding_only:
+            return unit_embedding
 
         inputs = unit_embedding.unsqueeze(1) + self.input_proj(x) # sum(B * D), L, dim
 

@@ -92,7 +92,7 @@ def init_single_dataset(dataset_name: str, phase: str, config: DatasetConfig):
     collate_f = dataset.collate_fn
     input_size = dataset.input_size
     unit_types = dataset.unit_types
-    data_loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=train_flag,
+    data_loader = DataLoader(dataset, batch_size=config.batch_size, shuffle=train_flag or config.shuffle_test,
                              num_workers=config.num_workers, collate_fn=collate_f)
 
     return data_loader, input_size, unit_types

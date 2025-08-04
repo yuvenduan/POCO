@@ -3,7 +3,15 @@ import os.path as osp
 import logging
 from configs.configs import NeuralPredictionConfig, DatasetConfig
 
-def configure_dataset(configs: dict):
+sampling_freqs = {
+    'zebrafish': 1,
+    'zebrafishahrens': 2,
+    'mice': 5,
+    'celegans': 3,
+    'celegansflavell': 2,
+}
+
+def configure_dataset(configs: dict, control_time_scale=False):
     """
     Add dataset configurations to the NeuralPredictionConfig objects according to the dataset label
 
@@ -136,6 +144,9 @@ def configure_dataset(configs: dict):
                 else:
                     raise ValueError(f'Unknown dataset label: {label}')
                 
+                if control_time_scale and dataset_name in sampling_freqs:
+                    dataset_config.sampling_freq = sampling_freqs[dataset_name]
+                
                 if config.dataset_filter is not None: # overwrite the filter type, if specified
                     dataset_config.filter_type = config.dataset_filter
 
@@ -173,7 +184,7 @@ def configure_models(configs: dict):
                     config.rnn_rank = int(config.rnn_type[5:])
                     config.rnn_type = 'LRRNN'
                 config.tf_interval = 4
-            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO', 'POCO', 'TACO']:
+            elif model_type in ['Linear', 'MLP', 'Transformer', 'POYO', 'POCO', 'TACO', 'UICO']:
                 config.model_type = 'Decoder'
                 config.loss_mode = 'prediction'
                 config.decoder_type = model_type
@@ -187,8 +198,18 @@ def configure_models(configs: dict):
                 if model_type == 'POCO':
                     config.conditioning = 'mlp'
                     config.decoder_type = 'POYO'
+                elif model_type == 'UICO':
+                    config.conditioning = 'mlp'
+                    config.decoder_type = 'POYO'
+                    config.poyo_embedding_only = True
+                    if sub_model_type == 'L':
+                        config.conditioning_layers = 2
+                        config.conditioning_dim = 2048
                 elif model_type == 'MLP':
-                    config.decoder_hidden_size = 1024
+                    config.decoder_hidden_size = config.mlp_hidden_size
+                    if sub_model_type == 'L':
+                        config.mlp_hidden_layers = 2
+                        config.decoder_hidden_size = 2048
                 elif model_type == 'TACO':
                     config.conditioning = 'mlp'
                     config.decoder_type = 'Transformer'
