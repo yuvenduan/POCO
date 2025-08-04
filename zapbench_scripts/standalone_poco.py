@@ -45,6 +45,7 @@ class NeuralPredictionConfig:
 
         self.freeze_backbone = False
         self.freeze_conditioned_net = False
+        self.tsmixer_ff_dim = 128
 
 # Adapted from POYO: https://poyo-brain.github.io/
 class RotaryCrossAttention(nn.Module):

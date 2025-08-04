@@ -1,10 +1,12 @@
+# python zapbench_train.py --seed 0 --context 256 --model tsmixer --save_dir test
+
 import os
 import itertools
 
 # Parameters to iterate over
 seeds = [0, 1, 2]
 contexts = [4, 256]
-models = ["poco"]
+models = ["poco", "tsmixer"]
 save_dir = "./experiments"
 batch_size = 8
 num_epochs = 25
@@ -12,7 +14,7 @@ lr_list = [3e-4]
 loss_fn_list = ["L1Loss"]
 compression_factor_list = [0]
 weight_decay_list = [0.0001]
-poyo_unit_dropout_list = [0, 0.1]
+poyo_unit_dropout_list = [0]
 conditioning_dim_list = [1024]
 decoder_context_length_list = [0, ]
 

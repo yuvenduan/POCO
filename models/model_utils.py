@@ -95,3 +95,19 @@ def model_init(config: BaseConfig, datum_size, unit_type=None):
         
     model.to(DEVICE)
     return model
+
+def count_parameters(model: nn.Module, trainable_only: bool = True):
+    """
+    Count the number of parameters in a PyTorch model.
+
+    Args:
+        model (nn.Module): The PyTorch model.
+        trainable_only (bool): If True, only counts parameters with requires_grad=True.
+
+    Returns:
+        int: Number of parameters.
+    """
+    if trainable_only:
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    else:
+        return sum(p.numel() for p in model.parameters())

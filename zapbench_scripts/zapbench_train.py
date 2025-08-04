@@ -64,9 +64,27 @@ def get_data_loader(source, batch_size=4, num_epochs=1, seed=42):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import tsmixer
+
 from standalone_poco import POCO, NeuralPredictionConfig
 
 """Define a simple linear model"""
+
+class TSMixer(tsmixer.TSMixer):
+
+    def __init__(self, configs: NeuralPredictionConfig, input_size):
+        super().__init__(
+            sequence_length=configs.seq_length - configs.pred_length,
+            prediction_length=configs.pred_length,
+            input_channels=input_size,
+            ff_dim=configs.tsmixer_ff_dim
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.permute(1, 0, 2) # [L, B, D] -> [B, L, D]
+        x = super().forward(x)
+        x = x.permute(1, 0, 2)
+        return x
 
 class NLinear(nn.Module):
     """
@@ -316,6 +334,8 @@ import os as os
 import random
 import argparse
 
+os.environ["JAX_PLATFORM_NAME"] = "cpu"
+
 # Constants
 pred_length = 32
 input_size = 71721
@@ -324,7 +344,7 @@ input_size = 71721
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, required=True, help="Random seed")
 parser.add_argument("--context", type=int, required=True, help="Context length (e.g., 4 or 256)")
-parser.add_argument("--model", type=str, required=True, choices=["poco", "linear"], help="Model type to train")
+parser.add_argument("--model", type=str, required=True, choices=["poco", "linear", "tsmixer"], help="Model type to train")
 parser.add_argument("--save_dir", type=str, default='experiments/zapbench', help="Directory to save models")
 parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
 parser.add_argument("--num_epochs", type=int, default=1, help="Number of epochs")
@@ -365,6 +385,8 @@ if args.model == "poco":
     model_instance = POCO(configs, [[input_size]])
 elif args.model == "linear":
     model_instance = NLinear(configs, input_size)
+elif args.model == "tsmixer":
+    model_instance = TSMixer(configs, input_size)
 
 # Model directory (include all relevant hyperparameters)
 model_dir = os.path.join(

@@ -154,6 +154,8 @@ def model_train(config: NeuralPredictionConfig):
 
     # initialize model
     net = model_init(config, train_data.input_sizes, train_data.unit_types)
+    param_count = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print('Model: {}, Total parameters: {}'.format(config.model_type, param_count))
     
     # initialize optimizer
     if config.optimizer_type == 'Adam':

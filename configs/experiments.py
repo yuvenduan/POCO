@@ -26,6 +26,7 @@ def all_experiments():
     compare_models_multi_session()
     compare_dataset_filter()
     compare_models_multi_species()
+    compare_models_controlled_time_scale()
     zebrafish_multi_datasets()
 
     # simulations
@@ -169,6 +170,37 @@ def compare_models_multi_session():
     configs = configure_dataset(configs)
     return configs
 
+def compare_models_controlled_time_scale():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_controlled_time_scale'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_filter'] = ['none', ]
+    config_ranges['dataset_label'] = dataset_list[1: ]
+    config_ranges['model_label'] = multi_session_model_list
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs, control_time_scale=True)
+    return configs
+
+def compare_model_size_celegans_lowpass():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_model_size_celegans_lowpass'
+    config.model_label = 'POCO'
+    config.dataset_filter = 'lowpass'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = ['celegansflavell', 'celegans']
+    config_ranges['lr'] = [3e-5, 1e-4, 1e-3]
+    config_ranges['conditioning_layers'] = [2, 3]
+    config_ranges['decoder_hidden_size'] = [16, 32, 128, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
 def ablations():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_dataset_filter'
@@ -176,7 +208,7 @@ def ablations():
     config_ranges = OrderedDict()
     config_ranges['dataset_filter'] = ['none', ]
     config_ranges['dataset_label'] = dataset_list
-    config_ranges['model_label'] = ['POCO', 'POYO', 'MLP', 'TACO', ]
+    config_ranges['model_label'] = ['POCO', 'POYO', 'MLP', 'TACO', 'UICO', 'MLP_L', 'UICO_L']
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
 
     for seed in configs.keys():
@@ -273,6 +305,113 @@ def compare_hidden_size():
     configs = configure_dataset(configs)
     return configs
 
+def compare_mlp_hidden_size():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_mlp_hidden_size'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list
+    config_ranges['model_label'] = ['MLP', ]
+    config_ranges['mlp_hidden_layers'] = [1, 2, 3]
+    config_ranges['mlp_hidden_size'] = [256, 1024, 2048,  ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def mlp_test_size():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'poco_test_size'
+    config.max_batch = 0  # no training, just test the model size
+    config.perform_test = False
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list[: 1]
+    config_ranges['model_label'] = ['MLP', ]
+    config_ranges['mlp_hidden_layers'] = [1, 2, 3]
+    config_ranges['mlp_hidden_size'] = [256, 1024, 2048, 8192,  ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def poco_test_size():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'poco_test_size'
+    config.max_batch = 0
+    config.perform_test = False
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list
+    config_ranges['model_label'] = ['POCO', ]
+    config_ranges['conditioning_layers'] = [1, 2, 3]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def poco_compare_conditioning_layers():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'poco_compare_conditioning_layers'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list
+    config_ranges['model_label'] = ['POCO', ]
+    config_ranges['conditioning_layers'] = [2, 3]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def tsmixer_compare_ffdim():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'tsmixer_compare_fdim'
+    config.max_batch = 5000
+    
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = [f'zebrafish_pc-{session}' for session in range(19)] + \
+        [f'zebrafishahrens_pc-{session}' for session in range(15)] + \
+        [f'mice-{session}' for session in range(12)]
+    config_ranges['model_label'] = ['TSMixer', ]
+    config_ranges['tsmixer_ff_dim'] = [64, 128, 256, 512]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
+def compare_baseline_size():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_baseline_size'
+
+    config_ranges = OrderedDict()
+    config_ranges['dataset_label'] = dataset_list[: 3]
+    config_ranges['model_label'] = ['TexFilter', 'AR_Transformer', 'Latent_PLRNN', 'NetFormer']
+    config_ranges['baseline_size'] = [64, 128, 256, 512, 1024, ]
+
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+    for seed in configs.keys():
+        for config in configs[seed]:
+            config: NeuralPredictionConfig
+            size: int = config.baseline_size
+            if config.model_label == 'TexFilter':
+                config.hidden_size = size
+                config.filter_embed_size = size // 4
+            elif config.model_label == 'AR_Transformer':
+                config.hidden_size = size
+            elif config.model_label == 'Latent_PLRNN':
+                config.hidden_size = size
+            elif config.model_label == 'NetFormer':
+                config.netformer_embed_size = size // 4
+
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
+    return configs
+
 def compare_context_window_length():
     config = NeuralPredictionConfig()
     config.experiment_name = 'compare_context_window_length'
@@ -320,7 +459,23 @@ def compare_models_multi_species():
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
     configs = configure_models(configs)
     configs = configure_dataset(configs)
+    return configs
 
+def compare_models_multi_species_model_size():
+    config = NeuralPredictionConfig()
+    config.experiment_name = 'compare_models_multi_species'
+    config.dataset_label = [
+        'zebrafish_pc', 'zebrafishahrens_pc', 'mice_pc', 
+        'mice', 'celegans', 'celegansflavell', 
+    ]
+    config.max_batch = 20000
+    config_ranges = OrderedDict()
+    config_ranges['model_label'] = ['POCO', ]
+    config_ranges['decoder_hidden_size'] = [128, 256, 512, ]
+    config_ranges['decoder_num_layers'] = [1, 2, 4, ]
+    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=4)
+    configs = configure_models(configs)
+    configs = configure_dataset(configs)
     return configs
 
 def zebrafish_multi_datasets():
@@ -629,18 +784,30 @@ def basemodels(): # train the base model on some sessions/datasets, used for fin
         ['zebrafish_pc', 'zebrafishahrens_pc'],
         ['mice-0-10'],
     ]
-    config_ranges['model_label'] = ['POCO', ]
+    # config_ranges['dataset_label'] = [config_ranges['dataset_label'][x] for x in [0, 2, 7]] 
+    config_ranges['model_label'] = ['POCO', 'TACO', 'MLP', 'UICO', 'MLP_L', 'UICO_L']
 
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
+
+    for seed in configs.keys():
+        for config in configs[seed]:
+            config: NeuralPredictionConfig
+            if config.model_label == 'TACO' and config.dataset_label[0].startswith('mice'):
+                config.batch_size = 16
+
     configs = configure_models(configs)
     configs = configure_dataset(configs)
     return configs
 
-def finetuning(): # compare finetuning (all), only train embedding, train from scratch, linear/mlp train from scratch
+def finetuning_cfg(name='finetuning', max_batch=2000): # compare finetuning (all), only train embedding, train from scratch, linear/mlp train from scratch
     config = NeuralPredictionConfig()
-    config.experiment_name = 'finetuning'
+    config.experiment_name = name
     config.log_every = 20
-    config.max_batch = 2000
+    config.max_batch = max_batch
+
+    if max_batch == 0:
+        config.log_every = config.max_batch = 1
+        config.lr = 0
 
     config_ranges = OrderedDict()
     config_ranges['dataset_filter'] = ['none', ]
@@ -649,9 +816,15 @@ def finetuning(): # compare finetuning (all), only train embedding, train from s
         [f'zebrafishahrens_pc-{id}' for id in [11, 12, 13, 14]] +
         [f'mice-{id}' for id in [10, 11]]
     )
-    config_ranges['model_label'] = ['Pre-POCO(Full)', 'Pre-POCO(UI)', 'Pre-POCO(UI+MLP)', 'POCO', 'NLinear', 'MLP', ]
+    config_ranges['model_label'] = [
+        'Pre-POCO(Full)', 'Pre-POCO(UI)', 'Pre-POCO(UI+MLP)', 
+        'Pre-MLP', 'Pre-TACO', 'Pre-UICO(Full)', 'Pre-UICO(UI)', 
+        'Pre-MLP_L', 'Pre-UICO_L(Full)', 'Pre-UICO_L(UI)',
+        'POCO', 'TACO', 'UICO', 'NLinear', 'MLP',  
+    ]
     configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=3)
 
+    pretrained_model_types = ['POCO', 'TACO', 'MLP', 'UICO', 'MLP_L', 'UICO_L', ]
     pretrained_model_id_dict = {
         'zebrafish_pc': 0,
         'zebrafishahrens_pc': 2,
@@ -661,20 +834,33 @@ def finetuning(): # compare finetuning (all), only train embedding, train from s
     for seed, config_list in configs.items():
         for config in config_list:
             config: NeuralPredictionConfig
-            if config.model_label.startswith('Pre-POCO'):
+            if config.model_label.startswith('Pre-'):
                 config.finetuning = True
-                model_id = pretrained_model_id_dict[config.dataset_label.split('-')[0]]
+                
+                model_id = pretrained_model_id_dict[config.dataset_label.split('-')[0]] * len(pretrained_model_types)
+                model_label = config.model_label.split('(')[0][4: ]
+                model_id = model_id + pretrained_model_types.index(model_label)
+
                 config.load_path = os.path.join(basemodels()[seed][model_id].save_path, 'net_best.pth')
-                if config.model_label == 'Pre-POCO(UI)':
+                if config.model_label.endswith('(UI)'):
                     config.freeze_backbone = True
                     config.freeze_conditioned_net = True
                 elif config.model_label == 'Pre-POCO(UI+MLP)':
                     config.freeze_backbone = True
-                config.model_label = 'POCO'
+                config.model_label = model_label
+
+            if config.model_label == 'TACO' and config.dataset_label.startswith('mice'):
+                config.batch_size = 16
 
     configs = configure_models(configs)
     configs = configure_dataset(configs)
-    return configs
+    return configs 
+
+def finetuning():
+    return finetuning_cfg(name='finetuning', max_batch=2000)
+
+def zeroshot():
+    return finetuning_cfg(name='zeroshot', max_batch=0)
 
 def finetuning_test_time():
     config = NeuralPredictionConfig()
