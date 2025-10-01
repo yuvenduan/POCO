@@ -47,7 +47,7 @@ BASE_MODEL_COLORS = {
     'NLinear': '#2C4875', 'DLinear': '#5A7684', 'POYO': '#edae49', 'POCO': '#E67E22', 'TACO': '#E99675',# '#FF7F0E', #
     'Latent_PLRNN': '#9B3D3D', 'AR_Transformer': '#4E5D6C', 'MultiAR_Transformer': '#4E5D6C',
     'NetFormer': '#A0C4FF', 'TexFilter': '#68A4D3',
-    'TCN': '#E99675', 'MLP': '#005F73', 'TSMixer': '#C9A66B',
+    'TCN': '#E99675', 'MLP': '#005F73', 'TSMixer': '#C9A66B', 'MLP_L': '#005F73'
 }
 MODEL_COLORS = {}
 

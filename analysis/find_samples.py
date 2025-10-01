@@ -125,7 +125,7 @@ def find_samples(config: NeuralPredictionConfig, alternative_configs, save_path)
                         )
                         ax.vlines(inp_x[-1], y_min, y_max, color='gray', linestyle='--')
 
-                        ax.set_title(f'Session {i_session}, Trial {i_trial}, Neuron {min_idx}')
+                        ax.set_title(f'Session {i_session}, Neuron {min_idx}')
                         ax.set_xlabel('Time Step')
                         ax.set_ylabel('Activity')
                         ax.legend(loc='upper left', bbox_to_anchor=(1.05, 1), fontsize='x-small')
@@ -135,7 +135,7 @@ def find_samples(config: NeuralPredictionConfig, alternative_configs, save_path)
                         # Save figure every 10 plots
                         if i_plotted % 10 == 0:
                             plt.tight_layout()
-                            plt.savefig(osp.join(save_path, f'comparison_batch_{fig_idx}.png'))
+                            plt.savefig(osp.join(save_path, f'comparison_batch_{fig_idx}.pdf'))
                             plt.close()
                             fig_idx += 1
 

@@ -94,6 +94,7 @@ def compare_model_training_curves(
     datasets = None,
     max_batch = None,
     colors = None,
+    draw_baseline = True
 ):
     """
     Compare the train/test loss curves of different models, also save the train/val loss curves for each model
@@ -109,6 +110,7 @@ def compare_model_training_curves(
     :param show_test_performance: whether to show the test performance on the legend
     :param datasets: a list of datasets to plot results, if None, use all datasets in the configuration
     :param max_batch: the maximum batch to plot
+    :param draw_baseline: whether to draw the baseline performance on the plot
     """
     
     performance = []
@@ -124,7 +126,8 @@ def compare_model_training_curves(
         for dataset in all_datasets:
             assert dataset in cfg.dataset_config, f"Dataset {dataset} not found in the configuration"
 
-            val_baseline_performance = get_baseline_performance(cfg.dataset_config[dataset], 'val')['avg_copy_mse']
+            if draw_baseline:
+                val_baseline_performance = get_baseline_performance(cfg.dataset_config[dataset], 'val')['avg_copy_mse']
             performance = []
             train_performance = []
             test_mse = []
@@ -140,8 +143,9 @@ def compare_model_training_curves(
                     test_mse.append(get_performance(cfgs, k + i * len(model_list), key=f'{dataset}_val_mse'))
                     test_mae.append(get_performance(cfgs, k + i * len(model_list), key=f'{dataset}_val_mae'))
 
-                def draw_baseline(plt, x_axis, linewidth, capsize, capthick):
-                    plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
+                def baseline(plt, x_axis, linewidth, capsize, capthick):
+                    if draw_baseline:
+                        plt.plot(x_axis, [val_baseline_performance] * len(x_axis), color='gray', linestyle='--', linewidth=linewidth)
 
                 if plot_train_test_curve:
                     # compare train and test curves
@@ -155,7 +159,7 @@ def compare_model_training_curves(
                         fig_name=f'{dataset}_{mode}_{model}',
                         figsize=(5, 4),
                         mode='errorshade',
-                        extra_lines=draw_baseline
+                        extra_lines=baseline
                     )
 
             if plot_model_lists is None:
@@ -207,7 +211,7 @@ def compare_model_training_curves(
                     fig_name=f'{dataset}_{mode}_val_{key}',
                     figsize=(7 + show_test_performance * 4, 3),
                     mode='errorshade',
-                    extra_lines=draw_baseline,
+                    extra_lines=baseline,
                     legend_bbox_to_anchor=(1.05, 0), # move the legend to the right
                     legend_loc='lower left',
                     colors=colors,
@@ -559,7 +563,7 @@ def compare_dataset_filter_analysis():
             else:
                 performance[filter_type] = get_weighted_performance(
                     cfgs, len(model_list), 3 * n_exp,  [i + j * n_exp], transpose=True
-                )  
+                )
 
         plot_datasets = filter_types
         performance = [[performance[filter_type][i] for filter_type in filter_types] for i in range(len(model_list))]
@@ -585,6 +589,11 @@ def compare_dataset_filter_analysis():
             ylim=[0, 0.7], save_dir='compare_dataset_filter', fig_name=f'compare_dataset_filter_{dataset}',
             fig_size=(8, 4), style='bar', title='Compare Filters for Dataset: ' + get_dataset_labels([dataset])[0],
             legend_loc='upper left', legend_bbox_to_anchor=(1, 0.8), error_mode='sem'
+        )
+
+        tables.summarize_model_performance_latex(
+            performance, model_list, plot_datasets,
+            save_dir='compare_dataset_filter', table_name=f'compare_dataset_filter_{dataset}', precision=3
         )
 
 def ablations_analysis():
@@ -708,6 +717,7 @@ def compare_models_analysis():
             )
             set_performance(performance_list, multi_session_model_list, dataset)
 
+        """
         cfgs = experiments.compare_models_celegans_single_session()
         single_session_model_list = experiments.single_session_model_list
         set_performance(
@@ -767,9 +777,10 @@ def compare_models_analysis():
             ),
             single_session_model_list, 'zebrafishahrens_pc'
         )
+        """
         
         plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'mice', 'celegans', 'celegansflavell',]
-        plot_models = single_session_model_list + multi_session_model_list
+        plot_models = multi_session_model_list
         performance = retrieve_performance(plot_models, plot_datasets)
 
         if key == 'val_score':
@@ -791,7 +802,7 @@ def compare_models_analysis():
         if key == 'val_score':
             # zebrafish only
             plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', ]
-            plot_models = ['All_POCO', '2Datasets_POCO', 'MS_POCO', 'POCO', ]
+            plot_models = ['All_POCO', '2Datasets_POCO', 'MS_POCO', ]
             performance = retrieve_performance(plot_models, plot_datasets)
             plots.grouped_plot(
                 performance, group_labels=['Fish PC (Deisseroth)', 'Fish PC (Ahrens)', ],
@@ -820,7 +831,7 @@ def compare_models_analysis():
             )
 
             plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'mice', 'celegans', 'celegansflavell',]
-            plot_models = ['POCO', 'MS_POCO', 'All_POCO']
+            plot_models = ['MS_POCO', 'All_POCO']
             performance = retrieve_performance(plot_models, plot_datasets)
             tables.summarize_model_performance_latex(
                 performance, plot_models, get_dataset_labels(plot_datasets),
@@ -980,17 +991,6 @@ def compare_models_sim_analysis():
         legend_loc='upper left', legend_bbox_to_anchor=(1, 0.9), error_mode='sem'
     )
 
-def zebrafish_region_avg_analysis():
-    cfgs = experiments.zebrafish_region_avg()
-    model_list = ['ARMLP', 'Latent_PLRNN', 'POCO', 'MLP', 'AR_Transformer']
-
-    compare_model_training_curves(
-        cfgs, 'zebrafish_region_avg',
-        mode_list=[f'c{x}p{y}' for x in [1, 48] for y in [1, 16]],
-        model_list=model_list[: 4],
-        max_batch=5000
-    )
-
 def finetuning_analysis():
 
     finetuning_cfgs = experiments.finetuning()
@@ -1018,8 +1018,7 @@ def finetuning_analysis():
 
         plot_datasets = ['zebrafish_pc', 'zebrafishahrens_pc', 'mice' ]
         plot_model_list = [
-            'Pre-POCO (full finetune)', 'Pre-POCO (embedding only)', 'Pre-TMLP', 
-            'Pre-MLP (large)', 'Pre-UMLP (large, full finetune)', 'Pre-UMLP (large, embedding only)',
+            'Pre-POCO (full finetune)', 'Pre-POCO (embedding only)', 'Pre-MLP (large)', 'POCO', 'MLP',
         ]
         idx = [model_list.index(model) for model in plot_model_list]
         performance = [[performances[dataset][i] for dataset in plot_datasets] for i in idx]
@@ -1038,8 +1037,9 @@ def finetuning_analysis():
                 cfgs, 'finetuning',
                 mode_list=['Deisseroth{}'.format(i) for i in range(4)] + ['ahrens{}'.format(i) for i in range(4)] + ['mice{}'.format(i) for i in range(2)],
                 model_list=model_list, max_batch=200, 
-                colors=['#34623F', '#B39C4D'] + plots.get_model_colors(plot_model_list[2: ]),
-                plot_model_lists=plot_model_list
+                colors=['#34623F', '#B39C4D'] + plots.get_model_colors(['TexFilter', 'POCO', 'MLP']),
+                plot_model_lists=plot_model_list,
+                draw_baseline=False
             )
         
         performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
@@ -1135,7 +1135,7 @@ def compare_baseline_model_size_analysis():
     plot_datasets = dataset_list
     performance = [[performances[dataset][i] for dataset in plot_datasets] for i in range(len(model_list))]
 
-    tables.summarize_model_performance_markdown(
+    tables.summarize_model_performance_latex( # need to change the model names to show the actual parameter
         performance, model_list, get_dataset_labels(plot_datasets),
         save_dir='rebuttal', table_name='compare_baseline_model_size',
         precision=3, best='max',
@@ -1216,7 +1216,7 @@ def sample_prediction_analysis():
     cfg_list = experiments.compare_models_multi_session()[0]
     dataset_list = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegans', 'mice', ]
     target_model = ['POCO']
-    alt_models = ['MLP', 'TexFilter']
+    alt_models = ['MLP_L', 'TexFilter']
 
     for dataset_label in dataset_list:
         cfgs = [cfg for cfg in cfg_list if cfg.dataset_label[0] == dataset_label]
@@ -1228,6 +1228,24 @@ def sample_prediction_analysis():
         os.makedirs(save_path, exist_ok=True)
         
         find_samples(cfg, alt_cfgs, save_path)
+
+def zebrafish_region_avg_analysis():
+    cfgs = experiments.zebrafish_region_avg()
+    model_list = ['ARMLP', 'Latent_PLRNN', 'POCO', 'MLP', 'AR_Transformer']
+
+    compare_model_training_curves(
+        cfgs, 'zebrafish_region_avg',
+        mode_list=[f'c{x}p{y}' for x in [1, 48] for y in [1, 16]],
+        model_list=model_list,
+        plot_model_lists=model_list[: 4],
+        max_batch=5000
+    )
+
+def virtual_perturbation_analysis():
+    cfgs = experiments.zebrafish_region_avg()
+    models = ['ARMLP', 'Latent_PLRNN', 'POCO', 'MLP', 'AR_Transformer']
+    from analysis.stim import analyze_interaction_maps
+    analyze_interaction_maps(cfgs, modes=[f'c{x}p{y}' for x in [1, 48] for y in [1, 16]], models=models)
 
 def compare_model_size_celegans_lowpass_analysis():
     cfgs = experiments.compare_model_size_celegans_lowpass()
