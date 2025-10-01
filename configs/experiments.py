@@ -117,8 +117,8 @@ def poyo_compare_conditioning():
     return configs
 
 single_session_model_list = ['POCO', 'MLP', 'NLinear', 'Latent_PLRNN', 'TexFilter', 'NetFormer', 'AR_Transformer', 'DLinear', 'TCN', 'TSMixer', ]
-multi_session_model_list = ['POCO', 'MLP', 'NLinear', 'Latent_PLRNN', 'TexFilter', 'NetFormer', 'MultiAR_Transformer', ]
-single_neuron_model_list = ['POCO', 'MLP', 'NLinear', 'TexFilter',  ]
+multi_session_model_list = ['POCO', 'MLP_L', 'NLinear', 'Latent_PLRNN', 'TexFilter', 'NetFormer', 'MultiAR_Transformer', ]
+single_neuron_model_list = ['POCO', 'MLP_L', 'NLinear', 'TexFilter',  ]
 
 dataset_list = ['zebrafish_pc', 'zebrafishahrens_pc', 'celegansflavell', 'celegans', 'mice', 'mice_pc', ]
 large_dataset_list = ['zebrafishahrens', 'zebrafish', ]
@@ -320,45 +320,12 @@ def compare_mlp_hidden_size():
     configs = configure_dataset(configs)
     return configs
 
-def mlp_test_size():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'poco_test_size'
-    config.max_batch = 0  # no training, just test the model size
-    config.perform_test = False
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = dataset_list[: 1]
-    config_ranges['model_label'] = ['MLP', ]
-    config_ranges['mlp_hidden_layers'] = [1, 2, 3]
-    config_ranges['mlp_hidden_size'] = [256, 1024, 2048, 8192,  ]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
-def poco_test_size():
-    config = NeuralPredictionConfig()
-    config.experiment_name = 'poco_test_size'
-    config.max_batch = 0
-    config.perform_test = False
-
-    config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = dataset_list
-    config_ranges['model_label'] = ['POCO', ]
-    config_ranges['conditioning_layers'] = [1, 2, 3]
-
-    configs = vary_config(config, config_ranges, mode='combinatorial', num_seed=1)
-    configs = configure_models(configs)
-    configs = configure_dataset(configs)
-    return configs
-
 def poco_compare_conditioning_layers():
     config = NeuralPredictionConfig()
     config.experiment_name = 'poco_compare_conditioning_layers'
 
     config_ranges = OrderedDict()
-    config_ranges['dataset_label'] = dataset_list
+    config_ranges['dataset_label'] = large_dataset_list
     config_ranges['model_label'] = ['POCO', ]
     config_ranges['conditioning_layers'] = [2, 3]
 
